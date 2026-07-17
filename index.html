@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TBD Margin Explorer — PVM & Bridge</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --navy:#1F3864; --navy2:#2E5496; --ink:#1c2330; --muted:#6b7280;
+    --line:#e4e8f0; --bg:#f4f6fb; --card:#ffffff;
+    --pos:#1f9d57; --posbg:#e5f5ec; --neg:#d0473f; --negbg:#fbe7e5;
+    --band:#eef3fb; --amber:#bf8f00;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+  header{background:linear-gradient(120deg,var(--navy),var(--navy2));color:#fff;padding:18px 26px}
+  header h1{margin:0;font-size:19px;font-weight:700;letter-spacing:.2px}
+  header p{margin:4px 0 0;font-size:12.5px;opacity:.85}
+  .wrap{max-width:1240px;margin:0 auto;padding:20px 26px 60px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:18px;box-shadow:0 1px 2px rgba(20,30,60,.04)}
+  .upload-zone{border:2px dashed #c3cee0;border-radius:12px;padding:34px;text-align:center;background:#fbfcfe;cursor:pointer;transition:.15s}
+  .upload-zone:hover{border-color:var(--navy2);background:#f4f8ff}
+  .upload-zone.drag{border-color:var(--navy);background:#eef4ff}
+  .btn{background:var(--navy);color:#fff;border:none;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn:hover{background:var(--navy2)}
+  .btn.ghost{background:#fff;color:var(--navy);border:1px solid #c9d5ea}
+  .btn.ghost:hover{background:#f2f6ff}
+  .btn.sm{padding:6px 11px;font-size:12px}
+  .status{font-size:12.5px;color:var(--muted);margin-top:10px}
+  .status.err{color:var(--neg);font-weight:600}
+  .hidden{display:none!important}
+  .controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+  .fld{display:flex;flex-direction:column;gap:5px}
+  .fld label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  select,input[type=text]{padding:8px 10px;border:1px solid #c9d5ea;border-radius:8px;font-size:13px;background:#fff;min-width:130px}
+  /* multiselect dropdown */
+  .ms{position:relative}
+  .ms-btn{padding:8px 10px;border:1px solid #c9d5ea;border-radius:8px;background:#fff;font-size:13px;min-width:150px;text-align:left;cursor:pointer;display:flex;justify-content:space-between;gap:8px;align-items:center}
+  .ms-btn:after{content:"▾";color:var(--muted);font-size:11px}
+  .ms-panel{position:absolute;z-index:40;top:calc(100% + 4px);left:0;width:250px;max-height:290px;overflow:auto;background:#fff;border:1px solid #c9d5ea;border-radius:10px;box-shadow:0 8px 24px rgba(20,30,60,.14);padding:8px}
+  .ms-panel input[type=text]{width:100%;min-width:0;margin-bottom:6px}
+  .ms-row{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:13px;cursor:pointer}
+  .ms-row:hover{background:var(--band)}
+  .ms-tools{display:flex;gap:6px;margin-bottom:6px}
+  .ms-tools a{font-size:11.5px;color:var(--navy2);cursor:pointer;text-decoration:underline}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .kpi{background:var(--band);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi .lab{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+  .kpi .val{font-size:20px;font-weight:700;margin-top:3px}
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tab{padding:9px 16px;border-radius:9px 9px 0 0;border:1px solid var(--line);border-bottom:none;background:#eef1f7;color:var(--muted);cursor:pointer;font-weight:600;font-size:13px}
+  .tab.active{background:#fff;color:var(--navy);box-shadow:0 -1px 0 var(--navy) inset}
+  h3.sec{margin:2px 0 12px;font-size:14px;color:var(--navy);font-weight:700}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  th{background:var(--navy);color:#fff;font-weight:600;font-size:11.5px;position:sticky;top:0;cursor:pointer;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  th.sortable:hover{background:var(--navy2)}
+  tbody tr:hover{background:#f7faff;cursor:pointer}
+  .pos{color:var(--pos);font-weight:600}
+  .neg{color:var(--neg);font-weight:600}
+  .tbl-scroll{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+  .row-flex{display:flex;gap:18px;flex-wrap:wrap}
+  .row-flex>div{flex:1;min-width:320px}
+  .note{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:8px}
+  .pill{display:inline-block;background:var(--band);border:1px solid var(--line);border-radius:20px;padding:2px 10px;font-size:11px;margin:2px 3px 0 0}
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10.5px;font-weight:700;letter-spacing:.2px;white-space:nowrap}
+  .badge.bnew{background:#e3f4ea;color:#177a44;border:1px solid #b7e3c8}
+  .badge.bexit{background:#fdeede;color:#9a6400;border:1px solid #f2d09a}
+  .badge.bnm{background:#eef1f6;color:#7a828f;border:1px solid #dde2ea}
+  .barcell{position:relative}
+  .mini{height:9px;border-radius:2px;display:inline-block;vertical-align:middle}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  svg text{font-family:inherit}
+  .formula{background:#0f1b33;color:#e8eef9;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;padding:12px 15px;border-radius:9px;overflow-x:auto;white-space:pre;line-height:1.6;margin:9px 0;tab-size:2}
+  .help h4{color:var(--navy);margin:20px 0 4px;font-size:14.5px;border-top:1px solid var(--line);padding-top:14px}
+  .help h4:first-of-type{border-top:none;padding-top:0}
+  .help p{line-height:1.6;margin:7px 0}
+  .help ul{line-height:1.65;margin:6px 0 6px 2px;padding-left:18px}
+  .help li{margin:3px 0}
+  .help .var{background:var(--band);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:nowrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>The Baker's Dozen · Margin Explorer</h1>
+  <p>Upload your sales file → filter by channel / category / party / city / SKU → see the PVM &amp; margin bridge update live, and export. Find the culprit.</p>
+</header>
+<div class="wrap">
+
+  <div class="card" id="uploadCard">
+    <div class="upload-zone" id="dz">
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px">Drop your Excel file here, or click to choose</div>
+      <div style="font-size:12.5px;color:var(--muted)">Same format as <b>Sales_Data_Apr_to_Jun_26.xlsx</b> — sheet <b>“Final Data”</b>. Everything runs in your browser; nothing is uploaded anywhere.</div>
+      <input type="file" id="file" accept=".xlsx,.xls" class="hidden">
+    </div>
+    <div class="status" id="status">Waiting for a file…</div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <div class="controls">
+        <div class="fld"><label>Compare from</label><select id="fromSel"></select></div>
+        <div class="fld"><label>to</label><select id="toSel"></select></div>
+        <div class="fld"><label>Channel</label><div id="f_channel"></div></div>
+        <div class="fld"><label>P&amp;L segment</label><div id="f_seg"></div></div>
+        <div class="fld"><label>Category</label><div id="f_cat"></div></div>
+        <div class="fld"><label>City</label><div id="f_city"></div></div>
+        <div class="fld"><label>Party</label><div id="f_party"></div></div>
+        <div class="fld"><label>SKU</label><div id="f_sku"></div></div>
+        <div class="fld"><label>&nbsp;</label><button class="btn ghost sm" id="resetBtn">Reset filters</button></div>
+      </div>
+      <div id="activeFilters" class="note"></div>
+    </div>
+
+    <div class="kpis card" id="kpis"></div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="pvm">PVM — ₹ margin bridge</div>
+      <div class="tab" data-tab="bridge">Bridge — GM % (Price + Mix)</div>
+      <div class="tab" data-tab="bridge5">Bridge — GM % (MRP combined)</div>
+      <div class="tab" data-tab="help">Help / formulas</div>
+    </div>
+
+    <!-- PVM TAB -->
+    <div id="tab-pvm">
+      <div class="card">
+        <div class="row-flex">
+          <div>
+            <h3 class="sec">Where the ₹ margin moved (filtered)</h3>
+            <div id="pvmWaterfall"></div>
+          </div>
+          <div>
+            <h3 class="sec">Summary</h3>
+            <div id="pvmTable"></div>
+            <div class="note" id="pvmNote"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <h3 class="sec" style="margin:0">Breakdown — each row is its own PVM (click a row to drill in)</h3>
+          <div class="fld" style="flex-direction:row;align-items:center;gap:8px">
+            <label style="margin:0">Break down by</label>
+            <select id="pvmDim"></select>
+          </div>
+        </div>
+        <div class="tbl-scroll" style="margin-top:10px"><div id="pvmBreak"></div></div>
+        <div class="actions">
+          <button class="btn sm" id="pvmExport">⤓ Export breakdown (Excel)</button>
+          <button class="btn ghost sm" id="rawExport">⤓ Export filtered rows (Excel)</button>
+        </div>
+        <div class="note">Each row decomposes <i>its own</i> April→June margin change, so the ΔGM ₹ column sums to the total, while Volume/Mix/Price/Cost are computed within that segment (mix across segments differs from mix within them).</div>
+      </div>
+    </div>
+
+    <!-- BRIDGE TAB -->
+    <div id="tab-bridge" class="hidden">
+      <div class="card">
+        <div class="row-flex">
+          <div>
+            <h3 class="sec">GM % bridge (filtered)</h3>
+            <div id="brWaterfall"></div>
+          </div>
+          <div>
+            <h3 class="sec">Levers</h3>
+            <div id="brTable"></div>
+            <div class="note">GM % = 1 − (RM+PM+Fo+MFG+Yield)/Net Sales. Six levers sum to ΔGM % exactly. <b>Price</b> = pure per-SKU MRP change (≥0, no cuts); <b>Mix</b> = product-mix shift; <b>RTV</b> = expiry+capping leakage.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <h3 class="sec" style="margin:0">Breakdown — GM % bridge by segment (click to drill in)</h3>
+          <div class="fld" style="flex-direction:row;align-items:center;gap:8px">
+            <label style="margin:0">Break down by</label>
+            <select id="brDim"></select>
+          </div>
+        </div>
+        <div class="tbl-scroll" style="margin-top:10px"><div id="brBreak"></div></div>
+        <div class="actions">
+          <button class="btn sm" id="brExport">⤓ Export bridge breakdown (Excel)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- BRIDGE (MRP combined) TAB -->
+    <div id="tab-bridge5" class="hidden">
+      <div class="card">
+        <div class="row-flex">
+          <div>
+            <h3 class="sec">GM % bridge — MRP combined (filtered)</h3>
+            <div id="br5Waterfall"></div>
+          </div>
+          <div>
+            <h3 class="sec">Levers</h3>
+            <div id="br5Table"></div>
+            <div class="note">The classic five-lever identity: <b>Cost + MRP + Commission + RTV + GST = ΔGM%</b>. Here <b>MRP</b> is the full realised-MRP effect with Price and Mix kept together; the “Price + Mix” tab splits it. See <b>Help / formulas</b> for the derivation.</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <h3 class="sec" style="margin:0">Breakdown — five-lever bridge by segment (click a row to drill in)</h3>
+          <div class="fld" style="flex-direction:row;align-items:center;gap:8px">
+            <label style="margin:0">Break down by</label>
+            <select id="br5Dim"></select>
+          </div>
+        </div>
+        <div class="tbl-scroll" style="margin-top:10px"><div id="br5Break"></div></div>
+        <div class="actions"><button class="btn sm" id="br5Export">⤓ Export five-lever breakdown (Excel)</button></div>
+      </div>
+    </div>
+
+    <!-- HELP TAB -->
+    <div id="tab-help" class="hidden">
+      <div class="card help">
+        <h3 class="sec" style="font-size:16px;margin-bottom:4px">How every number on this dashboard is calculated</h3>
+        <p>Everything here is built from a few per-SKU quantities, combined two ways. The <b>PVM</b> works in <b>rupees</b> and includes volume (“where did the ₹ go?”). The <b>bridge</b> works in <b>percentage points of GM%</b> and volume cancels out, because a ratio doesn’t depend on scale (“what moved the margin <i>rate</i>?”).</p>
+
+        <h4>1 · Building blocks (per SKU, per month)</h4>
+        <p>From your file, for each SKU <span class="var">i</span> in a month:</p>
+        <div class="formula">q   = adjusted quantity
+NS  = net sales
+TC  = RM + PM + Fo + MFG + Yield Loss        (total cost)
+GM  = NS − TC                                 (gross margin)
+
+unit price (realisation)   p = NS / q
+unit cost                  c = TC / q
+unit margin                m = p − c = GM / q</div>
+        <p>For any group: <span class="var">Q = Σq</span>, <span class="var">GM = ΣGM</span>, and the average unit margin <span class="var">M̄ = GM / Q</span>.</p>
+
+        <h4>2 · PVM — the ₹ view (Volume / Mix / Price / Cost)</h4>
+        <p>Comparing period 1 (“from”) with period 2 (“to”), the total change <span class="var">ΔGM = GM₂ − GM₁</span> splits into effects that sum to it exactly:</p>
+        <div class="formula">Volume =  (Q₂ − Q₁) · M̄₁                 more/fewer units at period-1 avg margin
+Mix    =  Σ q₂ᵢ·m₁ᵢ  −  Q₂·M̄₁             period-2 volumes tilted to high/low-margin SKUs
+Price  =  Σ q₂ᵢ·(p₂ᵢ − p₁ᵢ)                realisation per unit changed
+Cost   =  Σ q₂ᵢ·(c₁ᵢ − c₂ᵢ)                unit cost changed (cost down = +)
+
+Volume + Mix + Price + Cost + Unallocated = ΔGM</div>
+        <ul>
+          <li><b>Volume</b> holds margin-per-unit fixed at period 1 and asks what the total unit change alone is worth.</li>
+          <li><b>Mix</b> holds period-1 unit margins fixed and asks whether period-2 volume leaned toward the more (or less) profitable SKUs. Equivalently <span class="var">Σ(q₂ᵢ − Q₂·w₁ᵢ)·m₁ᵢ</span> with <span class="var">w₁ᵢ = q₁ᵢ/Q₁</span> = period-1 volume share.</li>
+          <li><b>Price</b> re-prices period-2 volumes by the change in realisation per unit.</li>
+          <li><b>Cost</b> re-prices period-2 volumes by the change in unit cost (sign flipped so a cost cut reads positive).</li>
+          <li><b>Unallocated</b> = ΔGM − (the four above); it catches SKUs with zero adjusted qty but non-zero sales (returns-only), where per-unit values don’t exist. Usually tiny.</li>
+          <li><b>New</b> / <b>Discontinued</b> buckets: when a whole segment (by the “break down by” dimension — e.g. a channel) exists in only one period, its entire margin is shown as a separate <b>New</b> (entered) or <b>Discontinued</b> (left) bar, and Volume/Mix/Price/Cost are computed on the <i>continuing</i> segments only — so entries and exits aren’t smeared into the like-for-like effects. All bars still sum exactly to Δ Gross Margin. Switch the “break down by” selector to regroup them (new products vs new channels vs new parties…).</li>
+        </ul>
+        <p>Note: PVM <b>Price is net realisation</b> (NS/q), so it bundles list-MRP, commission, leakage and GST together. The bridge below pulls those apart.</p>
+
+        <h4>3 · The bridge — the GM % view</h4>
+        <p>The bridge decomposes the change in the <i>rate</i> <span class="var">GM% = 1 − TC/NS</span>. Realisation per unit is rebuilt as a chain of factors, each defined from your actual totals so the identity is exact:</p>
+        <div class="formula">M = Σ(MRPᵢ·qᵢ)/Q          effective list-MRP per unit   (write MRP̄ = Σ MRPᵢ·qᵢ)
+K = (MRP̄ − AdjBill)/MRP̄   commission fraction
+λ = (AdjBill − Consumer)/AdjBill    RTV leakage (expiry + capping)
+G = Consumer / NS         the (1 + GST) factor
+c = TC / Q                effective unit cost
+
+p = NS/Q = M · (1−K) · (1−λ) / G            (holds exactly)
+TotalCost% = TC/NS = c·G / [ M·(1−K)·(1−λ) ]
+GM% = 1 − TotalCost%</div>
+        <p>Because TotalCost% is a <b>product</b> of those factors, its change splits exactly and additively using <b>LMDI</b> (Logarithmic Mean Divisia Index). The weight is the logarithmic mean of the two TotalCost% values:</p>
+        <div class="formula">Lm = L(TC%₁, TC%₂),   where  L(a,b) = (b − a) / ln(b/a)     (= a if a = b)</div>
+        <p>That specific weight is what makes the pieces sum to the exact ΔGM% with <b>zero residual</b>. Each lever’s effect on GM% (numerator factors flip sign, since GM% = 1 − TC%):</p>
+        <div class="formula">Cost        = − Lm · ln(c₂/c₁)                unit cost up    → GM% down
+MRP         = + Lm · ln(M₂/M₁)                realised MRP up → GM% up
+Commission  = + Lm · ln((1−K₂)/(1−K₁))        more commission → GM% down
+RTV-leakage = + Lm · ln((1−λ₂)/(1−λ₁))        more expiry/capping → GM% down
+GST         = − Lm · ln(G₂/G₁)                higher effective GST → GM% down
+
+Cost + MRP + Commission + RTV + GST = ΔGM%      ← the “MRP combined” tab</div>
+
+        <h4>4 · Price vs Mix — splitting the MRP lever</h4>
+        <p>The MRP effect moves whenever the <i>effective</i> MRP per unit <span class="var">M</span> changes — and M is a volume-weighted average of list MRP, so it moves for two different reasons: a real <b>list-price</b> change, or a <b>mix</b> shift toward higher/lower-MRP products even with every price frozen. To separate them, build a fixed-mix (Laspeyres) MRP — period-1 mix, period-2 prices:</p>
+        <div class="formula">M_fix = Σ ( MRPᵢ[period 2] · qᵢ[period 1] ) / Σ qᵢ[period 1]
+
+Price = Lm · ln( M_fix / M₁ )      per-SKU list-MRP change only, mix frozen
+Mix   = Lm · ln( M₂ / M_fix )      the leftover — mix shifting
+
+Price + Mix = Lm · ln(M₂/M₁) = the whole MRP effect   (nothing lost)</div>
+        <p>This is why <b>Price came out ≥ 0</b>: since no list MRP was cut, M_fix ≥ M₁, so ln(M_fix/M₁) ≥ 0. Any negative on the revenue side (e.g. GT) is therefore forced into <b>Mix</b> — a shift to lower-MRP products — never into Price.</p>
+        <p>The <b>cross-segment</b> tabs in the Excel use the same construction but with the <i>company</i> as the reference instead of the previous period: Price = the segment’s price level vs company, Mix = the segment’s product mix vs company.</p>
+
+        <h4>5 · How the two “Prices” relate</h4>
+        <ul>
+          <li><b>PVM Price</b> (₹) = change in <b>net realisation per unit</b> — already contains list-price + commission + leakage + GST.</li>
+          <li><b>Bridge Price</b> (pp) = <b>list-MRP only</b>; commission, RTV and GST are their own levers, and it’s on the rate, so volume is carried separately by the PVM’s Volume line.</li>
+        </ul>
+
+        <h4>6 · Caveats</h4>
+        <ul>
+          <li>A segment that appears in only one period is tagged <b>New &lt;type&gt;</b> (started in the “to” period) or <b>Discontinued &lt;type&gt;</b> (gone by the “to” period) — e.g. “New Channel”, “New Product”, “New Party”. Only a segment present in <i>both</i> periods whose numbers can’t form a clean bridge (net sales / adjusted qty / billing &gt; 0, sensible ratios) shows <b>n/m</b>.</li>
+          <li>In every breakdown table, each row decomposes its <i>own</i> change, so the ΔGM column sums to the total while Volume/Mix/Price/Cost (or the bridge levers) are computed within that segment — mix across segments differs from mix within them.</li>
+          <li>Gross Margin = Net Sales − RM − PM − Fo − MFG − Yield&nbsp;Loss (matches your channel P&amp;L to the rupee). All computation runs locally in your browser.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="sec">Method &amp; caveats</h3>
+      <div class="note">
+        <b>Gross Margin</b> = Net Sales − RM − PM − Fo − MFG − Yield&nbsp;Loss (matches your channel P&amp;L to the rupee).<br>
+        <b>PVM (₹):</b> Volume = qty change × April avg unit-margin · Mix = shift between SKUs of different margin · Price = net realisation/unit · Cost = unit cost · Unallocated = zero-qty/returns edge. The five sum exactly to ΔGross Margin ₹.<br>
+        <b>Bridge (GM %):</b> exact LMDI split into Cost, Price, Mix, Commission, RTV-leakage, GST. A segment present in only one period is tagged <b>New …</b> or <b>Discontinued …</b> (e.g. New Channel, New Product); a segment in <i>both</i> periods whose numbers can’t form a clean bridge shows <b>n/m</b>.<br>
+        Two periods are compared (default April→June). All computation happens locally in your browser.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+let RAW=[], FROM=null, TO=null;
+const FIELDS={
+  month:["Month"], channel:["Chennal","Channel"], party:["Party Name","Party"],
+  sku:["Description","SKU"], cat:["Category"], city:["City"],
+  ns:["Net Sales"], matexp:["Material Exp"], mfg:["Mfg Exp"], yl:["Yield loss Amt Exp","Yield Loss Amt Exp"],
+  qty:["Adjut qty","Adjust qty","Adjusted qty"], mrp:["MRP"], adjbill:["Adjut Bill","Adjust Bill","Adjusted Bill"],
+  consumer:["Consumer Sale"], rm:["Rm","RM"], pm:["Pm","PM"], fo:["Fo","FO"]
+};
+const FILT={channel:new Set(),seg:new Set(),cat:new Set(),city:new Set(),party:new Set(),sku:new Set()};
+const DIMS={"P&L segment":"seg",Channel:"channel",Category:"cat",City:"city",Party:"party",SKU:"sku"};
+
+function toNum(v){ if(v==null)return 0; if(typeof v==="number")return isFinite(v)?v:0;
+  const n=parseFloat(String(v).replace(/[, ]/g,"")); return isFinite(n)?n:0; }
+function seg(ch){ const c=(ch||"").toUpperCase(); if(c==="MARKETPLACE")return "Marketplace"; if(c==="AC")return "AC"; return "Trade"; }
+function parseMonth(v){
+  // Excel serial number -> UTC-arithmetic (timezone-independent, no local rollover)
+  if(typeof v==="number"){
+    const d=new Date(Date.UTC(1899,11,30)+Math.round(v)*86400000);
+    return {key:d.getUTCFullYear()*12+d.getUTCMonth(), label:MON[d.getUTCMonth()]+" "+d.getUTCFullYear()};
+  }
+  if(v instanceof Date && !isNaN(v)) return {key:v.getUTCFullYear()*12+v.getUTCMonth(), label:MON[v.getUTCMonth()]+" "+v.getUTCFullYear()};
+  const s=String(v).trim();
+  let m=s.match(/^([A-Za-z]{3,})[-\/ ]+(\d{2,4})$/);           // "Apr-26" / "April 2026"
+  if(m){ const mi=MON.findIndex(x=>x.toLowerCase()===m[1].slice(0,3).toLowerCase());
+    if(mi>=0){ let y=+m[2]; if(y<100)y+=2000; return {key:y*12+mi, label:MON[mi]+" "+y}; } }
+  m=s.match(/^(\d{4})[-\/](\d{1,2})/);                          // "2026-04..."
+  if(m){ const y=+m[1], mi=(+m[2])-1; if(mi>=0&&mi<12) return {key:y*12+mi, label:MON[mi]+" "+y}; }
+  const d=new Date(s);
+  if(!isNaN(d)) return {key:d.getUTCFullYear()*12+d.getUTCMonth(), label:MON[d.getUTCMonth()]+" "+d.getUTCFullYear()};
+  return {key:s, label:s};
+}
+function findKey(headers,cands){ for(const c of cands){ const hit=headers.find(h=>h.trim().toLowerCase()===c.toLowerCase()); if(hit)return hit; } return null; }
+
+function ingest(rows){
+  const headers=[...new Set(rows.slice(0,8).flatMap(r=>Object.keys(r)))];
+  const map={}; const missing=[];
+  for(const f in FIELDS){ const k=findKey(headers,FIELDS[f]); map[f]=k; }
+  ["month","channel","sku","ns","matexp","mfg","yl","qty"].forEach(f=>{ if(!map[f])missing.push(FIELDS[f][0]); });
+  if(missing.length) throw new Error("Missing required column(s): "+missing.join(", "));
+  const out=[];
+  for(const r of rows){
+    const q=toNum(r[map.qty]);
+    const ns=toNum(r[map.ns]);
+    const tc=toNum(r[map.matexp])+toNum(r[map.mfg])+toNum(r[map.yl]);
+    const m=parseMonth(r[map.month]);
+    out.push({
+      mkey:m.key, mlabel:m.label,
+      channel:String(r[map.channel]??"").trim()||"(blank)",
+      party:map.party?String(r[map.party]??"").trim()||"(blank)":"(n/a)",
+      sku:String(r[map.sku]??"").trim()||"(blank)",
+      cat:map.cat?String(r[map.cat]??"").trim().toUpperCase()||"(blank)":"(n/a)",
+      city:map.city?String(r[map.city]??"").trim().toUpperCase()||"(blank)":"(n/a)",
+      seg:seg(r[map.channel]),
+      ns, tc, qty:q,
+      mrpadj:toNum(r[map.mrp])*q,
+      adjbill:toNum(r[map.adjbill]), consumer:toNum(r[map.consumer]),
+      rmc:toNum(r[map.rm])*q, pmc:toNum(r[map.pm])*q, foc:toNum(r[map.fo])*q,
+      mfgc:toNum(r[map.mfg]), ylc:toNum(r[map.yl])
+    });
+  }
+  return out;
+}
+
+// ---------- number fmt (Indian grouping) ----------
+const inr=v=>"₹"+Math.round(v).toLocaleString("en-IN");
+const inrS=v=>(v<0?"−₹":"+₹")+Math.abs(Math.round(v)).toLocaleString("en-IN");
+const pp=v=>(v>=0?"+":"−")+Math.abs(v*100).toFixed(2)+"pp";
+const pct=v=>(v*100).toFixed(1)+"%";
+const cls=v=>v>0?"pos":(v<0?"neg":"");
+const NOUN={"P&L segment":"Segment",Channel:"Channel",Category:"Category",City:"City",Party:"Party",SKU:"Product"};
+function statusBadge(st,dimLabel){ const n=NOUN[dimLabel]||"Segment";
+  if(st==="new")return `<span class="badge bnew">New ${n}</span>`;
+  if(st==="exited")return `<span class="badge bexit">Discontinued ${n}</span>`;
+  return `<span class="badge bnm">n/m</span>`; }
+function statusText(st,dimLabel){ const n=NOUN[dimLabel]||"Segment"; return st==="new"?"New "+n:st==="exited"?"Discontinued "+n:"n/m"; }
+function bridgeMsg(B,fromL,toL){
+  if(B.status==="new") return "This selection started in "+toL+" — there is no "+fromL+" baseline to build a bridge"+(B.gm2==null?".":". GM% "+toL+" = "+pct(B.gm2)+".");
+  if(B.status==="exited") return "This selection was discontinued after "+fromL+" — no "+toL+" data"+(B.gm1==null?".":". GM% "+fromL+" = "+pct(B.gm1)+".");
+  if(B.status==="empty") return "No data for this selection in the chosen periods.";
+  return "Bridge not meaningful — present in both periods, but the numbers aren’t clean enough to decompose (e.g. negative or zero base).";
+}
+
+// ---------- filtering ----------
+function applyFilters(){
+  return RAW.filter(r=>{
+    if(FILT.channel.size&&!FILT.channel.has(r.channel))return false;
+    if(FILT.seg.size&&!FILT.seg.has(r.seg))return false;
+    if(FILT.cat.size&&!FILT.cat.has(r.cat))return false;
+    if(FILT.city.size&&!FILT.city.has(r.city))return false;
+    if(FILT.party.size&&!FILT.party.has(r.party))return false;
+    if(FILT.sku.size&&!FILT.sku.has(r.sku))return false;
+    return true;
+  });
+}
+
+// ---------- PVM (matches Python seg_lib exactly) ----------
+function computePVM(rows){
+  const g=new Map(); let NS1=0,NS2=0;
+  for(const r of rows){
+    const idx = r.mkey===FROM?0 : (r.mkey===TO?1:-1); if(idx<0)continue;
+    let o=g.get(r.sku); if(!o){o={NS:[0,0],TC:[0,0],Q:[0,0]}; g.set(r.sku,o);}
+    o.NS[idx]+=r.ns; o.TC[idx]+=r.tc; o.Q[idx]+=r.qty;
+  }
+  let GM1=0,GM2=0,Q1=0,Q2=0;
+  for(const o of g.values()){GM1+=o.NS[0]-o.TC[0];GM2+=o.NS[1]-o.TC[1];Q1+=o.Q[0];Q2+=o.Q[1];NS1+=o.NS[0];NS2+=o.NS[1];}
+  const dGM=GM2-GM1;
+  const base={GM1,GM2,dGM,Q1,Q2,NS1,NS2,gmp1:NS1>0?GM1/NS1:null,gmp2:NS2>0?GM2/NS2:null};
+  const hasFrom=Q1>0, hasTo=Q2>0;
+  if(!hasFrom && !hasTo) return null;
+  if(!hasFrom) return {...base,status:"new",vol:null,mix:null,price:null,cost:null,resid:null};
+  if(!hasTo)   return {...base,status:"exited",vol:null,mix:null,price:null,cost:null,resid:null};
+  const M1bar=GM1/Q1; let vol=(Q2-Q1)*M1bar, sq2m1=0,price=0,cost=0;
+  for(const o of g.values()){
+    const q1=o.Q[0],q2=o.Q[1];
+    const p1=q1>0?o.NS[0]/q1:0,p2=q2>0?o.NS[1]/q2:0,c1=q1>0?o.TC[0]/q1:0,c2=q2>0?o.TC[1]/q2:0;
+    const m1=p1-c1; sq2m1+=q2*m1; price+=q2*(p2-p1); cost+=q2*(c1-c2);
+  }
+  const mix=sq2m1-Q2*M1bar, resid=dGM-(vol+mix+price+cost);
+  return {...base,status:"ok",vol,mix,price,cost,resid};
+}
+
+// ---------- PVM with explicit New/Discontinued buckets (grouped by chosen dimension) ----------
+function computePVMFull(rows, dimField){
+  if(!rows.length) return null;
+  const segP=new Map();
+  for(const r of rows){ const v=r[dimField]; let o=segP.get(v); if(!o){o={q1:0,q2:0};segP.set(v,o);} if(r.mkey===FROM)o.q1+=r.qty; else if(r.mkey===TO)o.q2+=r.qty; }
+  const cont=new Set(),nw=new Set(),ex=new Set();
+  for(const [v,o] of segP){ const hf=o.q1>0,ht=o.q2>0; if(hf&&ht)cont.add(v); else if(!hf&&ht)nw.add(v); else if(hf&&!ht)ex.add(v); }
+  let GM1=0,GM2=0,NS1=0,NS2=0,Q1=0,Q2=0,newAmt=0,discAmt=0;
+  for(const r of rows){ const g=r.ns-r.tc, v=r[dimField];
+    if(r.mkey===FROM){GM1+=g;NS1+=r.ns;Q1+=r.qty;} else if(r.mkey===TO){GM2+=g;NS2+=r.ns;Q2+=r.qty;}
+    const sgn=r.mkey===TO?1:(r.mkey===FROM?-1:0);
+    if(nw.has(v))newAmt+=sgn*g; else if(ex.has(v))discAmt+=sgn*g;
+  }
+  const dGM=GM2-GM1;
+  const base={GM1,GM2,dGM,NS1,NS2,Q1,Q2,gmp1:NS1>0?GM1/NS1:null,gmp2:NS2>0?GM2/NS2:null,
+    newAmt,discAmt,newCount:nw.size,discCount:ex.size,contCount:cont.size,dimField};
+  if(cont.size===0) return {...base,status:"entryexit",vol:0,mix:0,price:0,cost:0,resid:dGM-(newAmt+discAmt)};
+  const Pc=computePVM(rows.filter(r=>cont.has(r[dimField])));
+  const vol=Pc?Pc.vol:0,mix=Pc?Pc.mix:0,price=Pc?Pc.price:0,cost=Pc?Pc.cost:0;
+  return {...base,status:"ok",vol,mix,price,cost,resid:dGM-(vol+mix+price+cost+newAmt+discAmt)};
+}
+
+// ---------- Bridge (LMDI 6-lever + Laspeyres price/mix) ----------
+function Lmean(a,b){ return (Math.abs(b-a)>1e-12 && a>0 && b>0)?(b-a)/Math.log(b/a):a; }
+function aggPeriod(rows,idxKey){
+  let a={NS:0,TC:0,Q:0,MRP:0,AB:0,CON:0,RM:0,PM:0,FO:0,MFG:0,YL:0};
+  const skuMRP=new Map();
+  for(const r of rows){ if(r.mkey!==idxKey)continue;
+    a.NS+=r.ns;a.TC+=r.tc;a.Q+=r.qty;a.MRP+=r.mrpadj;a.AB+=r.adjbill;a.CON+=r.consumer;
+    a.RM+=r.rmc;a.PM+=r.pmc;a.FO+=r.foc;a.MFG+=r.mfgc;a.YL+=r.ylc;
+    let s=skuMRP.get(r.sku); if(!s){s={m:0,q:0};skuMRP.set(r.sku,s);} s.m+=r.mrpadj; s.q+=r.qty;
+  }
+  return {a,skuMRP};
+}
+function cleanAgg(a){ return a.NS>0&&a.Q>0&&a.AB>0&&a.MRP>0&&a.CON>0&&a.TC>0
+  && ((a.MRP-a.AB)/a.MRP>0)&&((a.MRP-a.AB)/a.MRP<1)&&((a.AB-a.CON)/a.AB<1)&&((a.AB-a.CON)/a.AB>-0.6)&&(a.TC/a.NS<=1.6); }
+function eff(a){ return {c:a.TC/a.Q,M:a.MRP/a.Q,K:(a.MRP-a.AB)/a.MRP,lam:(a.AB-a.CON)/a.AB,G:a.CON/a.NS,tc:a.TC/a.NS,gm:1-a.TC/a.NS}; }
+function computeBridge(rows){
+  const A=aggPeriod(rows,FROM), B=aggPeriod(rows,TO);
+  const hasFrom=A.a.Q>0, hasTo=B.a.Q>0;
+  const gm1r=A.a.NS>0?1-A.a.TC/A.a.NS:null, gm2r=B.a.NS>0?1-B.a.TC/B.a.NS:null, NS2=B.a.NS;
+  if(!hasFrom && !hasTo) return {status:"empty",NS2};
+  if(!hasFrom) return {status:"new",gm1:null,gm2:gm2r,NS2};
+  if(!hasTo)   return {status:"exited",gm1:gm1r,gm2:null,NS2};
+  if(!cleanAgg(A.a)||!cleanAgg(B.a)) return {status:"nm",gm1:gm1r,gm2:gm2r,NS2};
+  const e1=eff(A.a),e2=eff(B.a),Lm=Lmean(e1.tc,e2.tc);
+  const cost=-Lm*Math.log(e2.c/e1.c), comm=Lm*Math.log((1-e2.K)/(1-e1.K)),
+        rtv=Lm*Math.log((1-e2.lam)/(1-e1.lam)), gst=-Lm*Math.log(e2.G/e1.G), mrp=Lm*Math.log(e2.M/e1.M);
+  let QA=0,M1=0,Mfix=0;
+  for(const [k,sa] of A.skuMRP){ const sb=B.skuMRP.get(k);
+    if(sb&&sa.q>0&&sb.q>0){ const pa=sa.m/sa.q, pj=sb.m/sb.q; QA+=sa.q; M1+=pa*sa.q; Mfix+=pj*sa.q; } }
+  let price=0,mix=mrp;
+  if(QA>0&&M1>0){ M1/=QA; Mfix/=QA; if(Mfix>0){ price=Lm*Math.log(Mfix/M1); mix=mrp-price; } }
+  const dgm=e2.gm-e1.gm;
+  return {status:"ok",gm1:e1.gm,gm2:e2.gm,dgm,cost,price,mix,comm,rtv,gst,NS2,
+    leak1:(A.a.AB-A.a.CON)/A.a.AB, leak2:(B.a.AB-B.a.CON)/B.a.AB};
+}
+
+// ---------- waterfall svg ----------
+function waterfall(steps,fmt){
+  // steps: [{label, val, type:'start'|'end'|'up'|'down'}]
+  const W=Math.max(360, steps.length*84), H=290, padT=24,padB=54,padL=8,padR=8, bw=46;
+  let cum=0, pts=[], mn=0, mx=0;
+  steps.forEach(s=>{
+    if(s.type==="start"){ pts.push({...s,y0:0,y1:s.val}); cum=s.val; }
+    else if(s.type==="end"){ pts.push({...s,y0:0,y1:s.val}); }
+    else { pts.push({...s,y0:cum,y1:cum+s.val}); cum+=s.val; }
+    mn=Math.min(mn,pts[pts.length-1].y0,pts[pts.length-1].y1);
+    mx=Math.max(mx,pts[pts.length-1].y0,pts[pts.length-1].y1);
+  });
+  const span=(mx-mn)||1, sy=v=>padT+(H-padT-padB)*(1-(v-mn)/span);
+  const gap=(W-padL-padR)/steps.length;
+  let svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMinYMin meet">`;
+  svg+=`<line x1="${padL}" x2="${W-padR}" y1="${sy(0)}" y2="${sy(0)}" stroke="#c9d2e0" stroke-width="1"/>`;
+  pts.forEach((p,i)=>{
+    const cx=padL+gap*i+gap/2, x=cx-bw/2;
+    const yA=sy(p.y0), yB=sy(p.y1), top=Math.min(yA,yB), h=Math.max(2,Math.abs(yA-yB));
+    let fill = p.type==="start"||p.type==="end" ? "#1F3864" : (p.val>=0?"#1f9d57":"#d0473f");
+    svg+=`<rect x="${x}" y="${top}" width="${bw}" height="${h}" rx="2" fill="${fill}"/>`;
+    if(i>0){ const prev=pts[i-1]; const py=sy(prev.type==="start"?prev.y1:prev.y1); svg+=`<line x1="${padL+gap*(i-1)+gap/2+bw/2}" x2="${x}" y1="${py}" y2="${py}" stroke="#b7c1d4" stroke-dasharray="3,3"/>`; }
+    const vlab=(p.type==="start"||p.type==="end")?fmt(p.val):(p.val>=0?"+":"−")+fmt(Math.abs(p.val)).replace("₹","₹");
+    svg+=`<text x="${cx}" y="${top-6}" font-size="10.5" fill="#1c2330" font-weight="600" text-anchor="middle">${vlab}</text>`;
+    svg+=`<text x="${cx}" y="${H-padB+16}" font-size="10.5" fill="#6b7280" text-anchor="middle">${p.label}</text>`;
+  });
+  svg+=`</svg>`;
+  return svg;
+}
+
+// ---------- rendering ----------
+let pvmSort={dim:null,key:"dGM",dir:1}, brSort={key:"dgm",dir:1}, br5Sort={key:"dgm",dir:1};
+function render(){
+  const rows=applyFilters();
+  renderActive();
+  const P=computePVMFull(rows, DIMS[document.getElementById("pvmDim").value]);
+  renderKPIs(P);
+  renderPVM(P,rows);
+  renderBridge(rows);
+  renderBridge5(rows);
+}
+function renderActive(){
+  const chips=[];
+  for(const [k,s] of Object.entries(FILT)){ if(s.size){ chips.push(`<span class="pill"><b>${k}</b>: ${[...s].slice(0,4).join(", ")}${s.size>4?" +"+(s.size-4):""}</span>`); } }
+  document.getElementById("activeFilters").innerHTML = chips.length? "Active filters: "+chips.join(" ") : "No filters — showing everything.";
+}
+function renderKPIs(P){
+  const el=document.getElementById("kpis");
+  if(!P){ el.innerHTML=`<div class="kpi"><div class="lab">No data</div><div class="val">—</div></div>`; return; }
+  const fromL=document.getElementById("fromSel").selectedOptions[0].text, toL=document.getElementById("toSel").selectedOptions[0].text;
+  el.innerHTML=[
+    ["Gross Margin "+fromL, inr(P.GM1)],
+    ["Gross Margin "+toL, inr(P.GM2)],
+    ["Δ Gross Margin ₹", `<span class="${cls(P.dGM)}">${inrS(P.dGM)}</span>`],
+    ["GM % "+fromL, P.gmp1==null?"—":pct(P.gmp1)],
+    ["GM % "+toL, P.gmp2==null?"—":pct(P.gmp2)],
+  ].map(([l,v])=>`<div class="kpi"><div class="lab">${l}</div><div class="val">${v}</div></div>`).join("");
+}
+function renderPVM(P,rows){
+  const wf=document.getElementById("pvmWaterfall"), tb=document.getElementById("pvmTable"), nt=document.getElementById("pvmNote");
+  if(!P){ wf.innerHTML=tb.innerHTML="<div class='note'>Not enough data for the selected periods.</div>"; document.getElementById("pvmBreak").innerHTML=""; return; }
+  const fromL=document.getElementById("fromSel").selectedOptions[0].text, toL=document.getElementById("toSel").selectedOptions[0].text;
+  const noun=(NOUN[document.getElementById("pvmDim").value]||"Segment"), nounL=noun.toLowerCase();
+  const hasC=P.contCount>0, hasN=P.newCount>0, hasD=P.discCount>0;
+  const steps=[{label:"GM "+fromL,val:P.GM1,type:"start"}];
+  if(hasC){ steps.push({label:"Volume",val:P.vol,type:"step"},{label:"Mix",val:P.mix,type:"step"},{label:"Price",val:P.price,type:"step"},{label:"Cost",val:P.cost,type:"step"}); }
+  if(hasN) steps.push({label:"New",val:P.newAmt,type:"step"});
+  if(hasD) steps.push({label:"Discont.",val:P.discAmt,type:"step"});
+  steps.push({label:"Unalloc.",val:P.resid,type:"step"},{label:"GM "+toL,val:P.GM2,type:"end"});
+  wf.innerHTML=waterfall(steps, inr);
+  let body="";
+  if(hasC) body+=`${trow("Volume (scale)",P.vol)}${trow("Mix (SKU mix)",P.mix)}${trow("Price (realisation)",P.price)}${trow("Cost (unit cost)",P.cost)}`;
+  if(hasN) body+=`<tr><td><span class="badge bnew">New ${noun}${P.newCount>1?"s":""}</span> ×${P.newCount}</td><td class="${cls(P.newAmt)}">${inrS(P.newAmt)}</td></tr>`;
+  if(hasD) body+=`<tr><td><span class="badge bexit">Discontinued ${noun}${P.discCount>1?"s":""}</span> ×${P.discCount}</td><td class="${cls(P.discAmt)}">${inrS(P.discAmt)}</td></tr>`;
+  body+=trow("Unallocated",P.resid);
+  tb.innerHTML=`<table><tbody>${body}
+    <tr style="border-top:2px solid var(--navy)"><td><b>Δ Gross Margin ₹</b></td><td><b class="${cls(P.dGM)}">${inrS(P.dGM)}</b></td></tr>
+  </tbody></table>`;
+  nt.innerHTML = (hasN||hasD)
+    ? `<b>New</b> / <b>Discontinued</b> are whole ${nounL}s that entered or left between ${fromL} and ${toL} (grouped by the “break down by” choice below). Volume/Mix/Price/Cost cover the continuing ${nounL}s only, so nothing is double-counted — all bars sum to Δ Gross Margin.`
+    : `Adjusted qty ${fromL}: ${Math.round(P.Q1).toLocaleString("en-IN")} → ${toL}: ${Math.round(P.Q2).toLocaleString("en-IN")}.`;
+  renderPVMBreak(rows);
+}
+function trow(l,v){ return `<tr><td>${l}</td><td class="${cls(v)}">${inrS(v)}</td></tr>`; }
+
+function groupValues(rows,dimField){ return [...new Set(rows.map(r=>r[dimField]))]; }
+function renderPVMBreak(rows){
+  const dimLabel=document.getElementById("pvmDim").value, dimField=DIMS[dimLabel];
+  const vals=groupValues(rows,dimField);
+  let data=[];
+  for(const v of vals){ const sub=rows.filter(r=>r[dimField]===v); const p=computePVM(sub); if(p) data.push({v,...p}); }
+  const key=pvmSort.key, dir=pvmSort.dir;
+  data.sort((a,b)=>{ const av=a[key],bv=b[key]; if(av==null&&bv==null)return 0; if(av==null)return 1; if(bv==null)return -1; return (av-bv)*dir; });
+  const th=(k,l)=>`<th class="sortable" data-k="${k}">${l}${pvmSort.key===k?(pvmSort.dir<0?" ▼":" ▲"):""}</th>`;
+  let html=`<table><thead><tr><th>${dimLabel}</th>${th("NS2","NS "+curTo())}${th("GM1","GM "+curFrom())}${th("GM2","GM "+curTo())}${th("dGM","Δ GM ₹")}${th("vol","Volume")}${th("mix","Mix")}${th("price","Price")}${th("cost","Cost")}</tr></thead><tbody>`;
+  for(const d of data){
+    if(d.status!=="ok"){
+      html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}">
+        <td>${d.v}</td><td>${inr(d.NS2)}</td><td>${inr(d.GM1)}</td><td>${inr(d.GM2)}</td>
+        <td class="${cls(d.dGM)}">${inrS(d.dGM)}</td>
+        <td colspan="4" style="text-align:center">${statusBadge(d.status,dimLabel)}</td></tr>`;
+      continue;
+    }
+    html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}">
+      <td>${d.v}</td><td>${inr(d.NS2)}</td><td>${inr(d.GM1)}</td><td>${inr(d.GM2)}</td>
+      <td class="${cls(d.dGM)}">${inrS(d.dGM)}</td><td class="${cls(d.vol)}">${inrS(d.vol)}</td>
+      <td class="${cls(d.mix)}">${inrS(d.mix)}</td><td class="${cls(d.price)}">${inrS(d.price)}</td><td class="${cls(d.cost)}">${inrS(d.cost)}</td></tr>`;
+  }
+  html+=`</tbody></table>`;
+  const box=document.getElementById("pvmBreak"); box.innerHTML=html;
+  box.querySelectorAll("th.sortable").forEach(t=>t.onclick=()=>{ const k=t.dataset.k; pvmSort.dir=(pvmSort.key===k)?-pvmSort.dir:1; pvmSort.key=k; renderPVMBreak(rows); });
+  box.querySelectorAll("tbody tr").forEach(tr=>tr.onclick=()=>drill(tr.dataset.dim,tr.dataset.val));
+  window._pvmData=data.map(d=>d.status!=="ok"?{[dimLabel]:d.v,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Status:statusText(d.status,dimLabel)}:{[dimLabel]:d.v,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Volume:Math.round(d.vol),Mix:Math.round(d.mix),Price:Math.round(d.price),Cost:Math.round(d.cost),Unallocated:Math.round(d.resid),Status:"ok"});
+}
+function renderBridge(rows){
+  const B=computeBridge(rows), wf=document.getElementById("brWaterfall"), tb=document.getElementById("brTable");
+  if(B.status!=="ok"){ wf.innerHTML=""; tb.innerHTML="<div class='note'>"+bridgeMsg(B,curFrom(),curTo())+"</div>"; renderBridgeBreak(rows); return; }
+  wf.innerHTML=waterfall([
+    {label:"GM% "+curFrom(),val:B.gm1*100,type:"start"},
+    {label:"Cost",val:B.cost*100,type:"step"},{label:"Price",val:B.price*100,type:"step"},
+    {label:"Mix",val:B.mix*100,type:"step"},{label:"Comm",val:B.comm*100,type:"step"},
+    {label:"RTV",val:B.rtv*100,type:"step"},{label:"GST",val:B.gst*100,type:"step"},
+    {label:"GM% "+curTo(),val:B.gm2*100,type:"end"}
+  ], v=>v.toFixed(1)+"%");
+  tb.innerHTML=`<table><tbody>
+    <tr><td>GM % ${curFrom()}</td><td><b>${pct(B.gm1)}</b></td></tr>
+    ${brow("Cost",B.cost)}${brow("Price (list MRP)",B.price)}${brow("Mix (product mix)",B.mix)}
+    ${brow("Commission",B.comm)}${brow("RTV leakage",B.rtv)}${brow("GST",B.gst)}
+    <tr style="border-top:2px solid var(--navy)"><td>GM % ${curTo()}</td><td><b>${pct(B.gm2)}</b></td></tr>
+  </tbody></table>`;
+  renderBridgeBreak(rows);
+}
+function brow(l,v){ return `<tr><td>${l}</td><td class="${cls(v)}">${pp(v)}</td></tr>`; }
+function renderBridgeBreak(rows){
+  const dimLabel=document.getElementById("brDim").value, dimField=DIMS[dimLabel];
+  const vals=groupValues(rows,dimField); let data=[];
+  for(const v of vals){ const sub=rows.filter(r=>r[dimField]===v); const b=computeBridge(sub);
+    const ns2=sub.filter(r=>r.mkey===TO).reduce((s,r)=>s+r.ns,0);
+    if(b.status!=="empty") data.push({v,ns2,...b}); }
+  data.sort((a,b)=>{ const ao=a.status==="ok",bo=b.status==="ok"; if(ao&&!bo)return -1; if(!ao&&bo)return 1; if(!ao&&!bo)return 0; return (a[brSort.key]-b[brSort.key])*brSort.dir; });
+  const th=(k,l)=>`<th class="sortable" data-k="${k}">${l}${brSort.key===k?(brSort.dir<0?" ▼":" ▲"):""}</th>`;
+  let html=`<table><thead><tr><th>${dimLabel}</th><th>NS ${curTo()}</th>${th("gm1","GM% "+curFrom())}${th("gm2","GM% "+curTo())}${th("dgm","ΔGM%")}${th("cost","Cost")}${th("price","Price")}${th("mix","Mix")}${th("comm","Comm")}${th("rtv","RTV")}${th("gst","GST")}</tr></thead><tbody>`;
+  for(const d of data){
+    if(d.status!=="ok"){ const g1=d.gm1==null?"—":pct(d.gm1), g2=d.gm2==null?"—":pct(d.gm2);
+      html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}"><td>${d.v}</td><td>${inr(d.ns2)}</td><td>${g1}</td><td>${g2}</td><td colspan="7" style="text-align:center">${statusBadge(d.status,dimLabel)}</td></tr>`; continue; }
+    html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}"><td>${d.v}</td><td>${inr(d.ns2)}</td>
+      <td>${pct(d.gm1)}</td><td>${pct(d.gm2)}</td><td class="${cls(d.dgm)}">${pp(d.dgm)}</td>
+      <td class="${cls(d.cost)}">${pp(d.cost)}</td><td class="${cls(d.price)}">${pp(d.price)}</td><td class="${cls(d.mix)}">${pp(d.mix)}</td>
+      <td class="${cls(d.comm)}">${pp(d.comm)}</td><td class="${cls(d.rtv)}">${pp(d.rtv)}</td><td class="${cls(d.gst)}">${pp(d.gst)}</td></tr>`;
+  }
+  html+=`</tbody></table>`;
+  const box=document.getElementById("brBreak"); box.innerHTML=html;
+  box.querySelectorAll("th.sortable").forEach(t=>t.onclick=()=>{ const k=t.dataset.k; brSort.dir=(brSort.key===k)?-brSort.dir:1; brSort.key=k; renderBridgeBreak(rows); });
+  box.querySelectorAll("tbody tr").forEach(tr=>tr.onclick=()=>drill(tr.dataset.dim,tr.dataset.val));
+  window._brData=data.map(d=>d.status!=="ok"?{[dimLabel]:d.v,NS_to:Math.round(d.ns2),GMpct_from:d.gm1==null?"":+(d.gm1*100).toFixed(2),GMpct_to:d.gm2==null?"":+(d.gm2*100).toFixed(2),Status:statusText(d.status,dimLabel)}:{[dimLabel]:d.v,NS_to:Math.round(d.ns2),GMpct_from:+(d.gm1*100).toFixed(2),GMpct_to:+(d.gm2*100).toFixed(2),dGMpp:+(d.dgm*100).toFixed(2),Cost:+(d.cost*100).toFixed(2),Price:+(d.price*100).toFixed(2),Mix:+(d.mix*100).toFixed(2),Comm:+(d.comm*100).toFixed(2),RTV:+(d.rtv*100).toFixed(2),GST:+(d.gst*100).toFixed(2),Status:"ok"});
+}
+function renderBridge5(rows){
+  const B=computeBridge(rows), wf=document.getElementById("br5Waterfall"), tb=document.getElementById("br5Table");
+  if(B.status!=="ok"){ wf.innerHTML=""; tb.innerHTML="<div class='note'>"+bridgeMsg(B,curFrom(),curTo())+"</div>"; renderBridge5Break(rows); return; }
+  const mrp=B.price+B.mix;
+  wf.innerHTML=waterfall([
+    {label:"GM% "+curFrom(),val:B.gm1*100,type:"start"},
+    {label:"Cost",val:B.cost*100,type:"step"},{label:"MRP",val:mrp*100,type:"step"},
+    {label:"Comm",val:B.comm*100,type:"step"},{label:"RTV",val:B.rtv*100,type:"step"},{label:"GST",val:B.gst*100,type:"step"},
+    {label:"GM% "+curTo(),val:B.gm2*100,type:"end"}
+  ], v=>v.toFixed(1)+"%");
+  tb.innerHTML=`<table><tbody>
+    <tr><td>GM % ${curFrom()}</td><td><b>${pct(B.gm1)}</b></td></tr>
+    ${brow("Cost",B.cost)}${brow("MRP (Price + Mix)",mrp)}${brow("Commission",B.comm)}${brow("RTV leakage",B.rtv)}${brow("GST",B.gst)}
+    <tr style="border-top:2px solid var(--navy)"><td>GM % ${curTo()}</td><td><b>${pct(B.gm2)}</b></td></tr>
+  </tbody></table>`;
+  renderBridge5Break(rows);
+}
+function renderBridge5Break(rows){
+  const dimLabel=document.getElementById("br5Dim").value, dimField=DIMS[dimLabel];
+  const vals=groupValues(rows,dimField); let data=[];
+  for(const v of vals){ const sub=rows.filter(r=>r[dimField]===v); const b=computeBridge(sub);
+    const ns2=sub.filter(r=>r.mkey===TO).reduce((s,r)=>s+r.ns,0);
+    if(b.status!=="empty") data.push({v,ns2,mrp:b.status==="ok"?b.price+b.mix:null,...b}); }
+  data.sort((a,b)=>{ const ao=a.status==="ok",bo=b.status==="ok"; if(ao&&!bo)return -1; if(!ao&&bo)return 1; if(!ao&&!bo)return 0; return (a[br5Sort.key]-b[br5Sort.key])*br5Sort.dir; });
+  const th=(k,l)=>`<th class="sortable" data-k="${k}">${l}${br5Sort.key===k?(br5Sort.dir<0?" ▼":" ▲"):""}</th>`;
+  let html=`<table><thead><tr><th>${dimLabel}</th><th>NS ${curTo()}</th>${th("gm1","GM% "+curFrom())}${th("gm2","GM% "+curTo())}${th("dgm","ΔGM%")}${th("cost","Cost")}${th("mrp","MRP")}${th("comm","Comm")}${th("rtv","RTV")}${th("gst","GST")}</tr></thead><tbody>`;
+  for(const d of data){
+    if(d.status!=="ok"){ const g1=d.gm1==null?"—":pct(d.gm1), g2=d.gm2==null?"—":pct(d.gm2);
+      html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}"><td>${d.v}</td><td>${inr(d.ns2)}</td><td>${g1}</td><td>${g2}</td><td colspan="6" style="text-align:center">${statusBadge(d.status,dimLabel)}</td></tr>`; continue; }
+    html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}"><td>${d.v}</td><td>${inr(d.ns2)}</td>
+      <td>${pct(d.gm1)}</td><td>${pct(d.gm2)}</td><td class="${cls(d.dgm)}">${pp(d.dgm)}</td>
+      <td class="${cls(d.cost)}">${pp(d.cost)}</td><td class="${cls(d.mrp)}">${pp(d.mrp)}</td>
+      <td class="${cls(d.comm)}">${pp(d.comm)}</td><td class="${cls(d.rtv)}">${pp(d.rtv)}</td><td class="${cls(d.gst)}">${pp(d.gst)}</td></tr>`;
+  }
+  html+=`</tbody></table>`;
+  const box=document.getElementById("br5Break"); box.innerHTML=html;
+  box.querySelectorAll("th.sortable").forEach(t=>t.onclick=()=>{ const k=t.dataset.k; br5Sort.dir=(br5Sort.key===k)?-br5Sort.dir:1; br5Sort.key=k; renderBridge5Break(rows); });
+  box.querySelectorAll("tbody tr").forEach(tr=>tr.onclick=()=>drill(tr.dataset.dim,tr.dataset.val));
+  window._br5Data=data.map(d=>d.status!=="ok"?{[dimLabel]:d.v,NS_to:Math.round(d.ns2),GMpct_from:d.gm1==null?"":+(d.gm1*100).toFixed(2),GMpct_to:d.gm2==null?"":+(d.gm2*100).toFixed(2),Status:statusText(d.status,dimLabel)}:{[dimLabel]:d.v,NS_to:Math.round(d.ns2),GMpct_from:+(d.gm1*100).toFixed(2),GMpct_to:+(d.gm2*100).toFixed(2),dGMpp:+(d.dgm*100).toFixed(2),Cost:+(d.cost*100).toFixed(2),MRP:+(d.mrp*100).toFixed(2),Comm:+(d.comm*100).toFixed(2),RTV:+(d.rtv*100).toFixed(2),GST:+(d.gst*100).toFixed(2),Status:"ok"});
+}
+function escAttr(s){ return String(s).replace(/"/g,"&quot;"); }
+function curFrom(){ return document.getElementById("fromSel").selectedOptions[0].text; }
+function curTo(){ return document.getElementById("toSel").selectedOptions[0].text; }
+function drill(dimField,val){ FILT[dimField]=new Set([val]); syncMS(); render(); }
+
+// ---------- multiselect widgets ----------
+function buildMS(hostId,dimKey,options){
+  const host=document.getElementById(hostId); host.className="ms"; host.innerHTML="";
+  const btn=document.createElement("button"); btn.className="ms-btn"; host.appendChild(btn);
+  const panel=document.createElement("div"); panel.className="ms-panel hidden"; host.appendChild(panel);
+  const label=()=>{ const s=FILT[dimKey]; btn.firstChild ? null:null; btn.textContent = s.size? s.size+" selected" : "All"; };
+  function build(){
+    panel.innerHTML="";
+    const srch=document.createElement("input"); srch.type="text"; srch.placeholder="Search…"; panel.appendChild(srch);
+    const tools=document.createElement("div"); tools.className="ms-tools";
+    const all=document.createElement("a"); all.textContent="Select all"; const clr=document.createElement("a"); clr.textContent="Clear";
+    tools.appendChild(all); tools.appendChild(clr); panel.appendChild(tools);
+    const list=document.createElement("div");
+    function draw(f){ list.innerHTML="";
+      options.filter(o=>!f||o.toLowerCase().includes(f.toLowerCase())).forEach(o=>{
+        const row=document.createElement("label"); row.className="ms-row";
+        const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=FILT[dimKey].has(o);
+        cb.onchange=()=>{ cb.checked?FILT[dimKey].add(o):FILT[dimKey].delete(o); label(); render(); };
+        row.appendChild(cb); row.appendChild(document.createTextNode(o)); list.appendChild(row);
+      });
+    }
+    srch.oninput=()=>draw(srch.value); all.onclick=()=>{ options.forEach(o=>FILT[dimKey].add(o)); build(); label(); render(); };
+    clr.onclick=()=>{ FILT[dimKey].clear(); build(); label(); render(); };
+    panel.appendChild(list); draw("");
+  }
+  btn.onclick=(e)=>{ e.stopPropagation(); document.querySelectorAll(".ms-panel").forEach(p=>{if(p!==panel)p.classList.add("hidden")}); if(panel.classList.contains("hidden")){build();} panel.classList.toggle("hidden"); };
+  host._sync=label; label();
+}
+function syncMS(){ document.querySelectorAll(".ms").forEach(m=>m._sync&&m._sync()); }
+document.addEventListener("click",()=>document.querySelectorAll(".ms-panel").forEach(p=>p.classList.add("hidden")));
+
+// ---------- setup after load ----------
+function setup(){
+  const months=[...new Map(RAW.map(r=>[r.mkey,r.mlabel])).entries()].sort((a,b)=> (a[0]>b[0]?1:a[0]<b[0]?-1:0));
+  const fromSel=document.getElementById("fromSel"), toSel=document.getElementById("toSel");
+  fromSel.innerHTML=toSel.innerHTML=months.map(([k,l])=>`<option value="${k}">${l}</option>`).join("");
+  FROM=months[0][0]; TO=months[months.length-1][0];
+  fromSel.value=String(FROM); toSel.value=String(TO);
+  fromSel.onchange=()=>{FROM=coerceKey(fromSel.value);render();}; toSel.onchange=()=>{TO=coerceKey(toSel.value);render();};
+  const uniq=f=>[...new Set(RAW.map(r=>r[f]))].sort();
+  buildMS("f_channel","channel",uniq("channel"));
+  buildMS("f_seg","seg",uniq("seg"));
+  buildMS("f_cat","cat",uniq("cat"));
+  buildMS("f_city","city",uniq("city"));
+  buildMS("f_party","party",uniq("party"));
+  buildMS("f_sku","sku",uniq("sku"));
+  const dimOpts=Object.keys(DIMS).map(d=>`<option>${d}</option>`).join("");
+  document.getElementById("pvmDim").innerHTML=dimOpts; document.getElementById("brDim").innerHTML=dimOpts; document.getElementById("br5Dim").innerHTML=dimOpts;
+  document.getElementById("pvmDim").value="Category"; document.getElementById("brDim").value="Channel"; document.getElementById("br5Dim").value="Channel";
+  document.getElementById("pvmDim").onchange=()=>render();
+  document.getElementById("brDim").onchange=()=>renderBridgeBreak(applyFilters());
+  document.getElementById("br5Dim").onchange=()=>renderBridge5Break(applyFilters());
+  document.getElementById("resetBtn").onclick=()=>{ Object.values(FILT).forEach(s=>s.clear()); syncMS(); render(); };
+  const PANELS=["pvm","bridge","bridge5","help"];
+  document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active")); t.classList.add("active");
+    PANELS.forEach(n=>document.getElementById("tab-"+n).classList.toggle("hidden", n!==t.dataset.tab));
+  });
+  document.getElementById("pvmExport").onclick=()=>expExcel(window._pvmData,"PVM_breakdown");
+  document.getElementById("brExport").onclick=()=>expExcel(window._brData,"Bridge_PriceMix_breakdown");
+  document.getElementById("br5Export").onclick=()=>expExcel(window._br5Data,"Bridge_MRPcombined_breakdown");
+  document.getElementById("rawExport").onclick=()=>{
+    const r=applyFilters().map(x=>({Month:x.mlabel,Channel:x.channel,Segment:x.seg,Category:x.cat,City:x.city,Party:x.party,SKU:x.sku,NetSales:Math.round(x.ns),Cost:Math.round(x.tc),GM:Math.round(x.ns-x.tc),AdjQty:Math.round(x.qty)}));
+    expExcel(r,"Filtered_rows");
+  };
+  document.getElementById("app").classList.remove("hidden");
+  render();
+}
+function coerceKey(v){ const n=Number(v); return String(n)===v?n:v; }
+function expExcel(data,name){
+  if(!data||!data.length){ alert("Nothing to export for the current view."); return; }
+  const ws=XLSX.utils.json_to_sheet(data), wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31)); XLSX.writeFile(wb,name+".xlsx");
+}
+
+// ---------- file handling ----------
+function handleFile(file){
+  const st=document.getElementById("status"); st.className="status"; st.textContent="Reading "+file.name+" …";
+  const rd=new FileReader();
+  rd.onload=e=>{ try{
+      const wb=XLSX.read(e.target.result,{type:"array"});
+      const sh = wb.Sheets["Final Data"] || wb.Sheets[wb.SheetNames[0]];
+      const json=XLSX.utils.sheet_to_json(sh,{defval:null});
+      if(!json.length) throw new Error("The sheet appears to be empty.");
+      RAW=ingest(json);
+      const nm=[...new Set(RAW.map(r=>r.mlabel))].length;
+      st.innerHTML=`Loaded <b>${RAW.length.toLocaleString("en-IN")}</b> rows · ${nm} month(s) · ${new Set(RAW.map(r=>r.channel)).size} channels · ${new Set(RAW.map(r=>r.sku)).size} SKUs.`;
+      setup();
+    }catch(err){ st.className="status err"; st.textContent="Could not read file: "+err.message; console.error(err); } };
+  rd.onerror=()=>{ st.className="status err"; st.textContent="File read failed."; };
+  rd.readAsArrayBuffer(file);
+}
+const dz=document.getElementById("dz"), fi=document.getElementById("file");
+dz.onclick=()=>fi.click();
+fi.onchange=()=>{ if(fi.files[0]) handleFile(fi.files[0]); };
+dz.ondragover=e=>{e.preventDefault();dz.classList.add("drag");};
+dz.ondragleave=()=>dz.classList.remove("drag");
+dz.ondrop=e=>{e.preventDefault();dz.classList.remove("drag"); if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0]);};
+</script>
+</body>
+</html>
