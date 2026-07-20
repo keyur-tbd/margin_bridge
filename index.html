@@ -84,6 +84,14 @@
   .help ul{line-height:1.65;margin:6px 0 6px 2px;padding-left:18px}
   .help li{margin:3px 0}
   .help .var{background:var(--band);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;white-space:nowrap}
+  .ins{list-style:none;margin:0;padding:0}
+  .ins li{position:relative;padding:9px 12px 9px 34px;border-bottom:1px solid var(--line);line-height:1.55;font-size:13.5px}
+  .ins li:last-child{border-bottom:none}
+  .ins li:before{content:"";position:absolute;left:14px;top:15px;width:9px;height:9px;border-radius:50%;background:var(--muted)}
+  .ins li.pos:before{background:var(--pos)}
+  .ins li.neg:before{background:var(--neg)}
+  .ins li.warn:before{background:var(--amber)}
+  .ins li b{font-weight:700}
 </style>
 </head>
 <body>
@@ -125,6 +133,12 @@
 
     <div class="kpis card" id="kpis"></div>
 
+    <div class="card" id="insightsCard">
+      <h3 class="sec" style="margin-bottom:6px">What the numbers say</h3>
+      <ul class="ins" id="insightsBody"></ul>
+      <div class="note" style="padding:0 12px">Generated from the figures in your file for the current filters — plain arithmetic, not an opinion about causes. Every number here also appears in the tables below.</div>
+    </div>
+
     <div class="tabs">
       <div class="tab active" data-tab="pvm">PVM — ₹ margin bridge</div>
       <div class="tab" data-tab="bridge">Bridge — GM % (Price + Mix)</div>
@@ -161,6 +175,8 @@
             <select id="pvmMode" style="min-width:150px"></select>
             <label style="margin:0;margin-left:6px">Break down by</label>
             <select id="pvmDim"></select>
+            <select id="pvmDim2" title="then by"></select>
+            <select id="pvmDim3" title="then by"></select>
           </div>
         </div>
         <div class="tbl-scroll" style="margin-top:10px"><div id="pvmBreak"></div></div>
@@ -552,6 +568,7 @@ function render(){
   renderActive();
   const P=computePVMFull(rows, ENTRY_OPTS[document.getElementById("pvmEntryDim").value]);
   renderKPIs(P);
+  renderInsights(rows,P);
   renderPVM(P,rows);
   renderBridge(rows);
   renderBridge5(rows);
@@ -572,6 +589,72 @@ function renderKPIs(P){
     ["GM % "+fromL, P.gmp1==null?"—":pct(P.gmp1)],
     ["GM % "+toL, P.gmp2==null?"—":pct(P.gmp2)],
   ].map(([l,v])=>`<div class="kpi"><div class="lab">${l}</div><div class="val">${v}</div></div>`).join("");
+}
+function buildInsights(rows,P){
+  const ins=[]; if(!P) return ins;
+  const fromL=curFrom(), toL=curTo();
+  const abs=v=>inr(Math.abs(v));
+  let s1=`Gross margin <b>${P.dGM>=0?"rose":"fell"} by ${abs(P.dGM)}</b> \u2014 from ${inr(P.GM1)} in ${fromL} to ${inr(P.GM2)} in ${toL}.`;
+  if(P.gmp1!=null&&P.gmp2!=null) s1+=` The margin <i>rate</i> went ${pct(P.gmp1)} \u2192 ${pct(P.gmp2)}.`;
+  ins.push({tone:P.dGM>=0?"pos":"neg",t:s1});
+  const L=[{n:"Volume",v:P.vol,up:"you sold more units",dn:"you sold fewer units"},
+           {n:"Mix",v:P.mix,up:"the mix moved toward higher-margin products",dn:"the mix moved toward lower-margin products"},
+           {n:"Price",v:P.price,up:"you realised more per unit",dn:"you realised less per unit"},
+           {n:"Cost",v:P.cost,up:"unit costs came down",dn:"unit costs went up"}].filter(x=>x.v!=null&&Math.abs(x.v)>0.5);
+  if(L.length){
+    const byAbs=L.slice().sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)), top=byAbs[0];
+    ins.push({tone:top.v>=0?"pos":"neg",t:`The largest single effect was <b>${top.n} (${inrS(top.v)})</b> \u2014 ${top.v>=0?top.up:top.dn}.`});
+    if(P.vol<0 && P.dGM>0){
+      const helped=L.filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,2).map(x=>`${x.n} ${inrS(x.v)}`).join(" and ");
+      ins.push({tone:"pos",t:`Margin grew <b>despite lower volume</b> (adjusted qty ${Math.round(P.Q1).toLocaleString("en-IN")} \u2192 ${Math.round(P.Q2).toLocaleString("en-IN")}). The gain came from ${helped}.`});
+    } else if(P.vol>0 && P.dGM<0){
+      const hurt=L.filter(x=>x.v<0).sort((a,b)=>a.v-b.v).slice(0,2).map(x=>`${x.n} ${inrS(x.v)}`).join(" and ");
+      ins.push({tone:"neg",t:`Volume grew, but margin still <b>fell</b> \u2014 dragged down by ${hurt}.`});
+    }
+  }
+  const eLab=document.getElementById("pvmEntryDim").value, eF=ENTRY_OPTS[eLab];
+  const noun=(NOUN_BY_FIELD[eF]||"segment").toLowerCase();
+  if(P.newCount>0) ins.push({tone:P.newAmt>=0?"pos":"neg",t:`<b>${P.newCount} new ${noun}${P.newCount>1?"s":""}</b> that had no ${fromL} sales added ${inrS(P.newAmt)}; they are shown separately so they don\u2019t distort the like-for-like effects.`});
+  if(P.discCount>0) ins.push({tone:"warn",t:`<b>${P.discCount} ${noun}${P.discCount>1?"s":""} stopped selling</b> after ${fromL}, worth ${inrS(P.discAmt)} of margin.`});
+  if(!eF){
+    let launches=0; const q=new Map();
+    for(const r of rows){ let o=q.get(r.sku); if(!o){o={a:0,b:0};q.set(r.sku,o);} if(r.mkey===FROM)o.a+=r.qty; else if(r.mkey===TO)o.b+=r.qty; }
+    for(const o of q.values()) if(o.a<=0&&o.b>0) launches++;
+    if(launches>0) ins.push({tone:"warn",t:`Careful: <b>\u201centries &amp; exits at\u201d is set to None</b>, so ${launches} product${launches>1?"s":""} with no ${fromL} baseline sit inside Volume and Mix \u2014 inflating one and depressing the other by equal amounts. Switch it to <b>Product</b> for a true like-for-like read.`});
+  }
+  const D=pvmDims(), dimTitle=D.title.toLowerCase();
+  const C=computeContrib(rows,D.fields);
+  if(C&&C.length>1){
+    const byD=C.slice().sort((a,b)=>b.dGM-a.dGM);
+    const up=byD[0], dn=byD[byD.length-1];
+    if(up&&up.dGM>0) ins.push({tone:"pos",t:`Biggest gain by ${dimTitle}: <b>${up.label}</b> at ${inrS(up.dGM)}.`});
+    if(dn&&dn.dGM<0) ins.push({tone:"neg",t:`Biggest drag by ${dimTitle}: <b>${dn.label}</b> at ${inrS(dn.dGM)}.`});
+    const losers=byD.filter(x=>x.dGM<0);
+    if(losers.length>2&&P.dGM!==0){
+      const t3=losers.slice(-3).reduce((a,b)=>a+b.dGM,0);
+      if(Math.abs(t3)>0.15*Math.abs(P.dGM))
+        ins.push({tone:"neg",t:`The three worst ${dimTitle} combinations together cost ${inrS(t3)} \u2014 ${losers.slice(-3).map(x=>x.label).join("; ")}.`});
+    }
+    const mx=C.slice().sort((a,b)=>a.mix-b.mix);
+    if(P.mix!=null&&Math.abs(P.mix)>1&&mx.length&&Math.abs(mx[0].mix)>Math.abs(P.mix)*0.25)
+      ins.push({tone:"neg",t:`Within Mix, <b>${mx[0].label}</b> alone accounts for ${inrS(mx[0].mix)} \u2014 the single largest mix drag.`});
+    const pz=C.filter(x=>Math.abs(x.dGM)>0).length;
+    if(D.fields.length>1) ins.push({tone:"",t:`This view splits the business into <b>${pz.toLocaleString("en-IN")} ${dimTitle} combinations</b>; sort any column in the table below to rank them.`});
+  }
+  const B=computeBridge(rows);
+  if(B.status==="ok"){
+    if(B.price>0.0001) ins.push({tone:"pos",t:`On the rate side, <b>list prices rose (+${(B.price*100).toFixed(1)}pp)</b> \u2014 no MRP was cut; any negative on the revenue side is mix, not price.`});
+    if(B.rtv<-0.005) ins.push({tone:"neg",t:`<b>RTV leakage (expiry + capping) cost ${(Math.abs(B.rtv)*100).toFixed(1)}pp</b> of gross margin \u2014 worth reviewing.`});
+    if(B.comm>0.005) ins.push({tone:"pos",t:`Platform commission eased, adding <b>+${(B.comm*100).toFixed(1)}pp</b>.`});
+  }
+  if(P.resid!=null&&Math.abs(P.dGM)>0&&Math.abs(P.resid)>0.08*Math.abs(P.dGM))
+    ins.push({tone:"warn",t:`${inrS(P.resid)} sits in <b>Unallocated</b> (returns-only rows with no adjusted quantity) \u2014 ${(Math.abs(P.resid)/Math.abs(P.dGM)*100).toFixed(0)}% of the total change, so read the split with that in mind.`});
+  return ins;
+}
+function renderInsights(rows,P){
+  const el=document.getElementById("insightsBody");
+  const ins=buildInsights(rows,P);
+  el.innerHTML = ins.length? ins.map(i=>`<li class="${i.tone}">${i.t}</li>`).join("") : `<li>No data for the current filters.</li>`;
 }
 function renderPVM(P,rows){
   const wf=document.getElementById("pvmWaterfall"), tb=document.getElementById("pvmTable"), nt=document.getElementById("pvmNote");
@@ -601,7 +684,19 @@ function renderPVM(P,rows){
 function trow(l,v){ return `<tr><td>${l}</td><td class="${cls(v)}">${inrS(v)}</td></tr>`; }
 
 function groupValues(rows,dimField){ return [...new Set(rows.map(r=>r[dimField]))]; }
-function computeContrib(rows, dimField){
+const KEYSEP="\u241F";
+function pvmDims(){
+  const labs=[document.getElementById("pvmDim").value,
+              document.getElementById("pvmDim2").value,
+              document.getElementById("pvmDim3").value].filter(x=>x&&x!=="\u2014");
+  const seen=new Set(), labels=[];
+  for(const l of labs){ if(!seen.has(l)){seen.add(l);labels.push(l);} }
+  return {labels, fields:labels.map(l=>DIMS[l]), title:labels.join(" \u00d7 ")};
+}
+function keyOf(r,fields){ return fields.map(f=>r[f]).join(KEYSEP); }
+function partsOf(key,fields){ const v=key.split(KEYSEP); return fields.map((f,i)=>[f,v[i]]); }
+function keyLabel(key){ return key.split(KEYSEP).join(" \u00b7 "); }
+function computeContrib(rows, fields){
   const entryField=ENTRY_OPTS[document.getElementById("pvmEntryDim").value];
   const newSet=new Set(), exSet=new Set(), contSet=new Set();
   if(entryField){
@@ -625,7 +720,7 @@ function computeContrib(rows, dimField){
   const out=new Map();
   const get=v=>{let o=out.get(v); if(!o){o={v,NS2:0,GM1:0,GM2:0,vol:0,mix:0,price:0,cost:0,newdisc:0};out.set(v,o);} return o;};
   for(const r of rows){
-    const o=get(r[dimField]), g=r.ns-r.tc;
+    const o=get(keyOf(r,fields)), g=r.ns-r.tc;
     if(r.mkey===FROM)o.GM1+=g; else if(r.mkey===TO){o.GM2+=g;o.NS2+=r.ns;}
     if(inEntry(r)){ o.newdisc += r.mkey===TO?g:(r.mkey===FROM?-g:0); continue; }
     if(!inCont(r))continue;
@@ -634,40 +729,45 @@ function computeContrib(rows, dimField){
     else if(r.mkey===TO){ o.vol+=r.qty*M1bar; o.mix+=r.qty*(u.m1-M1bar); o.price+=r.qty*(u.p2-u.p1); o.cost+=r.qty*(u.c1-u.c2); }
   }
   const arr=[...out.values()];
-  for(const o of arr){ o.dGM=o.GM2-o.GM1; o.other=o.dGM-(o.vol+o.mix+o.price+o.cost+o.newdisc); o.status="ok"; }
+  for(const o of arr){ o.dGM=o.GM2-o.GM1; o.other=o.dGM-(o.vol+o.mix+o.price+o.cost+o.newdisc); o.status="ok"; o.parts=partsOf(o.v,fields); o.label=keyLabel(o.v); }
   return arr;
 }
 function renderPVMBreak(rows){
-  const dimLabel=document.getElementById("pvmDim").value, dimField=DIMS[dimLabel];
+  const D=pvmDims(); const dimTitle=D.title, fields=D.fields;
   const contribMode=document.getElementById("pvmMode").value.indexOf("Contribution")===0;
+  const badgeLabel=D.labels.length===1?D.labels[0]:"Segment";
   let data=[];
-  if(contribMode){ data=computeContrib(rows,dimField)||[]; }
-  else { for(const v of groupValues(rows,dimField)){ const sub=rows.filter(r=>r[dimField]===v); const p=computePVM(sub); if(p) data.push({v,...p}); } }
+  if(contribMode){ data=computeContrib(rows,fields)||[]; }
+  else {
+    const keys=[...new Set(rows.map(r=>keyOf(r,fields)))];
+    for(const k of keys){ const sub=rows.filter(r=>keyOf(r,fields)===k); const p=computePVM(sub);
+      if(p) data.push({v:k,label:keyLabel(k),parts:partsOf(k,fields),...p}); }
+  }
   const key=pvmSort.key, dir=pvmSort.dir;
   data.sort((a,b)=>{ const av=a[key],bv=b[key]; if(av==null&&bv==null)return 0; if(av==null)return 1; if(bv==null)return -1; return (av-bv)*dir; });
-  const th=(k,l)=>`<th class="sortable" data-k="${k}">${l}${pvmSort.key===k?(pvmSort.dir<0?" ▼":" ▲"):""}</th>`;
-  let html=`<table><thead><tr><th>${dimLabel}</th>${th("NS2","NS "+curTo())}${th("GM1","GM "+curFrom())}${th("GM2","GM "+curTo())}${th("dGM","Δ GM ₹")}${th("vol","Volume")}${th("mix","Mix")}${th("price","Price")}${th("cost","Cost")}${contribMode?th("newdisc","New/Disc")+th("other","Other"):""}</tr></thead><tbody>`;
+  const th=(k,l)=>`<th class="sortable" data-k="${k}">${l}${pvmSort.key===k?(pvmSort.dir<0?" \u25bc":" \u25b2"):""}</th>`;
+  let html=`<table><thead><tr><th>${dimTitle}</th>${th("NS2","NS "+curTo())}${th("GM1","GM "+curFrom())}${th("GM2","GM "+curTo())}${th("dGM","\u0394 GM \u20b9")}${th("vol","Volume")}${th("mix","Mix")}${th("price","Price")}${th("cost","Cost")}${contribMode?th("newdisc","New/Disc")+th("other","Other"):""}</tr></thead><tbody>`;
   for(const d of data){
+    const pa=escAttr(JSON.stringify(d.parts||[]));
     if(d.status!=="ok"){
-      html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}">
-        <td>${d.v}</td><td>${inr(d.NS2)}</td><td>${inr(d.GM1)}</td><td>${inr(d.GM2)}</td>
+      html+=`<tr data-parts="${pa}"><td>${d.label}</td><td>${inr(d.NS2)}</td><td>${inr(d.GM1)}</td><td>${inr(d.GM2)}</td>
         <td class="${cls(d.dGM)}">${inrS(d.dGM)}</td>
-        <td colspan="4" style="text-align:center">${statusBadge(d.status,dimLabel)}</td></tr>`;
+        <td colspan="${contribMode?6:4}" style="text-align:center">${statusBadge(d.status,badgeLabel)}</td></tr>`;
       continue;
     }
-    html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}">
-      <td>${d.v}</td><td>${inr(d.NS2)}</td><td>${inr(d.GM1)}</td><td>${inr(d.GM2)}</td>
+    html+=`<tr data-parts="${pa}"><td>${d.label}</td><td>${inr(d.NS2)}</td><td>${inr(d.GM1)}</td><td>${inr(d.GM2)}</td>
       <td class="${cls(d.dGM)}">${inrS(d.dGM)}</td><td class="${cls(d.vol)}">${inrS(d.vol)}</td>
       <td class="${cls(d.mix)}">${inrS(d.mix)}</td><td class="${cls(d.price)}">${inrS(d.price)}</td><td class="${cls(d.cost)}">${inrS(d.cost)}</td>${contribMode?`<td class="${cls(d.newdisc)}">${inrS(d.newdisc)}</td><td class="${cls(d.other)}">${inrS(d.other)}</td>`:""}</tr>`;
   }
   html+=`</tbody></table>`;
   const box=document.getElementById("pvmBreak"); box.innerHTML=html;
   box.querySelectorAll("th.sortable").forEach(t=>t.onclick=()=>{ const k=t.dataset.k; pvmSort.dir=(pvmSort.key===k)?-pvmSort.dir:1; pvmSort.key=k; renderPVMBreak(rows); });
+  box.querySelectorAll("tbody tr").forEach(tr=>tr.onclick=()=>drillParts(tr.dataset.parts));
   document.getElementById("pvmBreakNote").innerHTML = contribMode
-    ? "<b>Contribution to total:</b> each row shows its share of the chart above, so every column adds up to the waterfall exactly. Use this to find which rows drove Volume or Mix. <b>New/Disc</b> = entering/leaving segments (per \u201centries &amp; exits at\u201d); <b>Other</b> = returns-only rows."
-    : "<b>Within segment:</b> each row decomposes <i>its own</i> change, so \u0394GM \u20b9 sums to the total but Volume/Mix/Price/Cost do not tie to the chart. At SKU level Mix is always \u20b90 (one product has no internal mix) \u2014 switch to \u201cContribution to total\u201d to see per-SKU Mix.";
-  box.querySelectorAll("tbody tr").forEach(tr=>tr.onclick=()=>drill(tr.dataset.dim,tr.dataset.val));
-  window._pvmData=data.map(d=>d.status!=="ok"?{[dimLabel]:d.v,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Status:statusText(d.status,dimLabel)}:{[dimLabel]:d.v,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Volume:Math.round(d.vol),Mix:Math.round(d.mix),Price:Math.round(d.price),Cost:Math.round(d.cost),...(contribMode?{NewDisc:Math.round(d.newdisc),Other:Math.round(d.other)}:{Unallocated:Math.round(d.resid)}),Status:"ok"});
+    ? "<b>Contribution to total:</b> each row shows its share of the chart above, so every column adds up to the waterfall exactly. <b>New/Disc</b> = entering/leaving segments (per \u201centries &amp; exits at\u201d); <b>Other</b> = returns-only rows."
+    : "<b>Within segment:</b> each row decomposes <i>its own</i> change, so \u0394GM \u20b9 sums to the total but Volume/Mix/Price/Cost do not tie to the chart. At SKU level Mix is always \u20b90 \u2014 switch to \u201cContribution to total\u201d to see per-SKU Mix.";
+  const nameCol=dimTitle;
+  window._pvmData=data.map(d=>d.status!=="ok"?{[nameCol]:d.label,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Status:statusText(d.status,badgeLabel)}:{[nameCol]:d.label,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Volume:Math.round(d.vol),Mix:Math.round(d.mix),Price:Math.round(d.price),Cost:Math.round(d.cost),...(contribMode?{NewDisc:Math.round(d.newdisc),Other:Math.round(d.other)}:{Unallocated:Math.round(d.resid)}),Status:"ok"});
 }
 function renderBridge(rows){
   const B=computeBridge(rows), wf=document.getElementById("brWaterfall"), tb=document.getElementById("brTable");
@@ -755,6 +855,8 @@ function escAttr(s){ return String(s).replace(/"/g,"&quot;"); }
 function curFrom(){ return document.getElementById("fromSel").selectedOptions[0].text; }
 function curTo(){ return document.getElementById("toSel").selectedOptions[0].text; }
 function drill(dimField,val){ FILT[dimField]=new Set([val]); syncMS(); render(); }
+function drillParts(json){ try{ const parts=JSON.parse(json||"[]"); if(!parts.length)return;
+  for(const [fld,val] of parts) FILT[fld]=new Set([val]); syncMS(); render(); }catch(e){} }
 
 // ---------- multiselect widgets ----------
 function buildMS(hostId,dimKey,options){
@@ -811,7 +913,12 @@ function setup(){
   document.getElementById("pvmMode").innerHTML=["Within segment","Contribution to total"].map(d=>`<option>${d}</option>`).join("");
   document.getElementById("pvmMode").value="Within segment";
   document.getElementById("pvmMode").onchange=()=>renderPVMBreak(applyFilters());
-  document.getElementById("pvmDim").onchange=()=>renderPVMBreak(applyFilters());
+  const dimOpts2='<option>\u2014</option>'+dimOpts;
+  document.getElementById("pvmDim2").innerHTML=dimOpts2; document.getElementById("pvmDim3").innerHTML=dimOpts2;
+  document.getElementById("pvmDim2").value="\u2014"; document.getElementById("pvmDim3").value="\u2014";
+  document.getElementById("pvmDim").onchange=()=>render();
+  document.getElementById("pvmDim2").onchange=()=>render();
+  document.getElementById("pvmDim3").onchange=()=>render();
   document.getElementById("brDim").onchange=()=>renderBridgeBreak(applyFilters());
   document.getElementById("br5Dim").onchange=()=>renderBridge5Break(applyFilters());
   document.getElementById("resetBtn").onclick=()=>{ Object.values(FILT).forEach(s=>s.clear()); syncMS(); render(); };
