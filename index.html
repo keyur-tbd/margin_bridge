@@ -137,7 +137,13 @@
       <div class="card">
         <div class="row-flex">
           <div>
-            <h3 class="sec">Where the ₹ margin moved (filtered)</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+              <h3 class="sec" style="margin:0 0 10px">Where the ₹ margin moved (filtered)</h3>
+              <div class="fld" style="flex-direction:row;align-items:center;gap:7px;margin-bottom:8px">
+                <label style="margin:0">Entries &amp; exits at</label>
+                <select id="pvmEntryDim" style="min-width:120px"></select>
+              </div>
+            </div>
             <div id="pvmWaterfall"></div>
           </div>
           <div>
@@ -391,6 +397,8 @@ const pp=v=>(v>=0?"+":"−")+Math.abs(v*100).toFixed(2)+"pp";
 const pct=v=>(v*100).toFixed(1)+"%";
 const cls=v=>v>0?"pos":(v<0?"neg":"");
 const NOUN={"P&L segment":"Segment",Channel:"Channel",Category:"Category",City:"City",Party:"Party",SKU:"Product"};
+const ENTRY_OPTS={"Product":"sku","Party":"party","Channel":"channel","Category":"cat","City":"city","P&L segment":"seg","None (like-for-like)":null};
+const NOUN_BY_FIELD={sku:"Product",party:"Party",channel:"Channel",cat:"Category",city:"City",seg:"Segment"};
 function statusBadge(st,dimLabel){ const n=NOUN[dimLabel]||"Segment";
   if(st==="new")return `<span class="badge bnew">New ${n}</span>`;
   if(st==="exited")return `<span class="badge bexit">Discontinued ${n}</span>`;
@@ -445,6 +453,11 @@ function computePVM(rows){
 // ---------- PVM with explicit New/Discontinued buckets (grouped by chosen dimension) ----------
 function computePVMFull(rows, dimField){
   if(!rows.length) return null;
+  if(!dimField){
+    const P=computePVM(rows);
+    if(!P) return null;
+    return {...P,newAmt:0,discAmt:0,newCount:0,discCount:0,contCount:1,dimField:null};
+  }
   const segP=new Map();
   for(const r of rows){ const v=r[dimField]; let o=segP.get(v); if(!o){o={q1:0,q2:0};segP.set(v,o);} if(r.mkey===FROM)o.q1+=r.qty; else if(r.mkey===TO)o.q2+=r.qty; }
   const cont=new Set(),nw=new Set(),ex=new Set();
@@ -535,7 +548,7 @@ let pvmSort={dim:null,key:"dGM",dir:1}, brSort={key:"dgm",dir:1}, br5Sort={key:"
 function render(){
   const rows=applyFilters();
   renderActive();
-  const P=computePVMFull(rows, DIMS[document.getElementById("pvmDim").value]);
+  const P=computePVMFull(rows, ENTRY_OPTS[document.getElementById("pvmEntryDim").value]);
   renderKPIs(P);
   renderPVM(P,rows);
   renderBridge(rows);
@@ -562,7 +575,7 @@ function renderPVM(P,rows){
   const wf=document.getElementById("pvmWaterfall"), tb=document.getElementById("pvmTable"), nt=document.getElementById("pvmNote");
   if(!P){ wf.innerHTML=tb.innerHTML="<div class='note'>Not enough data for the selected periods.</div>"; document.getElementById("pvmBreak").innerHTML=""; return; }
   const fromL=document.getElementById("fromSel").selectedOptions[0].text, toL=document.getElementById("toSel").selectedOptions[0].text;
-  const noun=(NOUN[document.getElementById("pvmDim").value]||"Segment"), nounL=noun.toLowerCase();
+  const noun=(NOUN_BY_FIELD[P.dimField]||"Segment"), nounL=noun.toLowerCase();
   const hasC=P.contCount>0, hasN=P.newCount>0, hasD=P.discCount>0;
   const steps=[{label:"GM "+fromL,val:P.GM1,type:"start"}];
   if(hasC){ steps.push({label:"Volume",val:P.vol,type:"step"},{label:"Mix",val:P.mix,type:"step"},{label:"Price",val:P.price,type:"step"},{label:"Cost",val:P.cost,type:"step"}); }
@@ -579,7 +592,7 @@ function renderPVM(P,rows){
     <tr style="border-top:2px solid var(--navy)"><td><b>Δ Gross Margin ₹</b></td><td><b class="${cls(P.dGM)}">${inrS(P.dGM)}</b></td></tr>
   </tbody></table>`;
   nt.innerHTML = (hasN||hasD)
-    ? `<b>New</b> / <b>Discontinued</b> are whole ${nounL}s that entered or left between ${fromL} and ${toL} (grouped by the “break down by” choice below). Volume/Mix/Price/Cost cover the continuing ${nounL}s only, so nothing is double-counted — all bars sum to Δ Gross Margin.`
+    ? `<b>New</b> / <b>Discontinued</b> are whole ${nounL}s that entered or left between ${fromL} and ${toL} (set by “entries &amp; exits at” above — independent of the breakdown below). Volume/Mix/Price/Cost cover the continuing ${nounL}s only, so nothing is double-counted — all bars sum to Δ Gross Margin.`
     : `Adjusted qty ${fromL}: ${Math.round(P.Q1).toLocaleString("en-IN")} → ${toL}: ${Math.round(P.Q2).toLocaleString("en-IN")}.`;
   renderPVMBreak(rows);
 }
@@ -750,7 +763,10 @@ function setup(){
   const dimOpts=Object.keys(DIMS).map(d=>`<option>${d}</option>`).join("");
   document.getElementById("pvmDim").innerHTML=dimOpts; document.getElementById("brDim").innerHTML=dimOpts; document.getElementById("br5Dim").innerHTML=dimOpts;
   document.getElementById("pvmDim").value="Category"; document.getElementById("brDim").value="Channel"; document.getElementById("br5Dim").value="Channel";
-  document.getElementById("pvmDim").onchange=()=>render();
+  document.getElementById("pvmEntryDim").innerHTML=Object.keys(ENTRY_OPTS).map(d=>`<option>${d}</option>`).join("");
+  document.getElementById("pvmEntryDim").value="Product";
+  document.getElementById("pvmEntryDim").onchange=()=>render();
+  document.getElementById("pvmDim").onchange=()=>renderPVMBreak(applyFilters());
   document.getElementById("brDim").onchange=()=>renderBridgeBreak(applyFilters());
   document.getElementById("br5Dim").onchange=()=>renderBridge5Break(applyFilters());
   document.getElementById("resetBtn").onclick=()=>{ Object.values(FILT).forEach(s=>s.clear()); syncMS(); render(); };
