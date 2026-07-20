@@ -157,7 +157,9 @@
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
           <h3 class="sec" style="margin:0">Breakdown — each row is its own PVM (click a row to drill in)</h3>
           <div class="fld" style="flex-direction:row;align-items:center;gap:8px">
-            <label style="margin:0">Break down by</label>
+            <label style="margin:0">Row basis</label>
+            <select id="pvmMode" style="min-width:150px"></select>
+            <label style="margin:0;margin-left:6px">Break down by</label>
             <select id="pvmDim"></select>
           </div>
         </div>
@@ -166,7 +168,7 @@
           <button class="btn sm" id="pvmExport">⤓ Export breakdown (Excel)</button>
           <button class="btn ghost sm" id="rawExport">⤓ Export filtered rows (Excel)</button>
         </div>
-        <div class="note">Each row decomposes <i>its own</i> April→June margin change, so the ΔGM ₹ column sums to the total, while Volume/Mix/Price/Cost are computed within that segment (mix across segments differs from mix within them).</div>
+        <div class="note" id="pvmBreakNote"></div>
       </div>
     </div>
 
@@ -599,15 +601,52 @@ function renderPVM(P,rows){
 function trow(l,v){ return `<tr><td>${l}</td><td class="${cls(v)}">${inrS(v)}</td></tr>`; }
 
 function groupValues(rows,dimField){ return [...new Set(rows.map(r=>r[dimField]))]; }
+function computeContrib(rows, dimField){
+  const entryField=ENTRY_OPTS[document.getElementById("pvmEntryDim").value];
+  const newSet=new Set(), exSet=new Set(), contSet=new Set();
+  if(entryField){
+    const segP=new Map();
+    for(const r of rows){ const v=r[entryField]; let o=segP.get(v); if(!o){o={q1:0,q2:0};segP.set(v,o);} if(r.mkey===FROM)o.q1+=r.qty; else if(r.mkey===TO)o.q2+=r.qty; }
+    for(const [v,o] of segP){ const hf=o.q1>0,ht=o.q2>0; if(hf&&ht)contSet.add(v); else if(!hf&&ht)newSet.add(v); else if(hf&&!ht)exSet.add(v); }
+  }
+  const inEntry=r=>!!entryField&&(newSet.has(r[entryField])||exSet.has(r[entryField]));
+  const inCont=r=>!entryField||contSet.has(r[entryField]);
+  const sku=new Map();
+  for(const r of rows){ if(!inCont(r))continue; const idx=r.mkey===FROM?0:(r.mkey===TO?1:-1); if(idx<0)continue;
+    let o=sku.get(r.sku); if(!o){o={NS:[0,0],TC:[0,0],Q:[0,0]};sku.set(r.sku,o);}
+    o.NS[idx]+=r.ns;o.TC[idx]+=r.tc;o.Q[idx]+=r.qty; }
+  let GM1=0,Q1=0;
+  for(const o of sku.values()){GM1+=o.NS[0]-o.TC[0];Q1+=o.Q[0];}
+  if(Q1<=0) return null;
+  const M1bar=GM1/Q1, per=new Map();
+  for(const [k,o] of sku){ const q1=o.Q[0],q2=o.Q[1];
+    const p1=q1>0?o.NS[0]/q1:0,p2=q2>0?o.NS[1]/q2:0,c1=q1>0?o.TC[0]/q1:0,c2=q2>0?o.TC[1]/q2:0;
+    per.set(k,{p1,p2,c1,c2,m1:p1-c1}); }
+  const out=new Map();
+  const get=v=>{let o=out.get(v); if(!o){o={v,NS2:0,GM1:0,GM2:0,vol:0,mix:0,price:0,cost:0,newdisc:0};out.set(v,o);} return o;};
+  for(const r of rows){
+    const o=get(r[dimField]), g=r.ns-r.tc;
+    if(r.mkey===FROM)o.GM1+=g; else if(r.mkey===TO){o.GM2+=g;o.NS2+=r.ns;}
+    if(inEntry(r)){ o.newdisc += r.mkey===TO?g:(r.mkey===FROM?-g:0); continue; }
+    if(!inCont(r))continue;
+    const u=per.get(r.sku); if(!u)continue;
+    if(r.mkey===FROM) o.vol-=r.qty*M1bar;
+    else if(r.mkey===TO){ o.vol+=r.qty*M1bar; o.mix+=r.qty*(u.m1-M1bar); o.price+=r.qty*(u.p2-u.p1); o.cost+=r.qty*(u.c1-u.c2); }
+  }
+  const arr=[...out.values()];
+  for(const o of arr){ o.dGM=o.GM2-o.GM1; o.other=o.dGM-(o.vol+o.mix+o.price+o.cost+o.newdisc); o.status="ok"; }
+  return arr;
+}
 function renderPVMBreak(rows){
   const dimLabel=document.getElementById("pvmDim").value, dimField=DIMS[dimLabel];
-  const vals=groupValues(rows,dimField);
+  const contribMode=document.getElementById("pvmMode").value.indexOf("Contribution")===0;
   let data=[];
-  for(const v of vals){ const sub=rows.filter(r=>r[dimField]===v); const p=computePVM(sub); if(p) data.push({v,...p}); }
+  if(contribMode){ data=computeContrib(rows,dimField)||[]; }
+  else { for(const v of groupValues(rows,dimField)){ const sub=rows.filter(r=>r[dimField]===v); const p=computePVM(sub); if(p) data.push({v,...p}); } }
   const key=pvmSort.key, dir=pvmSort.dir;
   data.sort((a,b)=>{ const av=a[key],bv=b[key]; if(av==null&&bv==null)return 0; if(av==null)return 1; if(bv==null)return -1; return (av-bv)*dir; });
   const th=(k,l)=>`<th class="sortable" data-k="${k}">${l}${pvmSort.key===k?(pvmSort.dir<0?" ▼":" ▲"):""}</th>`;
-  let html=`<table><thead><tr><th>${dimLabel}</th>${th("NS2","NS "+curTo())}${th("GM1","GM "+curFrom())}${th("GM2","GM "+curTo())}${th("dGM","Δ GM ₹")}${th("vol","Volume")}${th("mix","Mix")}${th("price","Price")}${th("cost","Cost")}</tr></thead><tbody>`;
+  let html=`<table><thead><tr><th>${dimLabel}</th>${th("NS2","NS "+curTo())}${th("GM1","GM "+curFrom())}${th("GM2","GM "+curTo())}${th("dGM","Δ GM ₹")}${th("vol","Volume")}${th("mix","Mix")}${th("price","Price")}${th("cost","Cost")}${contribMode?th("newdisc","New/Disc")+th("other","Other"):""}</tr></thead><tbody>`;
   for(const d of data){
     if(d.status!=="ok"){
       html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}">
@@ -619,13 +658,16 @@ function renderPVMBreak(rows){
     html+=`<tr data-dim="${dimField}" data-val="${escAttr(d.v)}">
       <td>${d.v}</td><td>${inr(d.NS2)}</td><td>${inr(d.GM1)}</td><td>${inr(d.GM2)}</td>
       <td class="${cls(d.dGM)}">${inrS(d.dGM)}</td><td class="${cls(d.vol)}">${inrS(d.vol)}</td>
-      <td class="${cls(d.mix)}">${inrS(d.mix)}</td><td class="${cls(d.price)}">${inrS(d.price)}</td><td class="${cls(d.cost)}">${inrS(d.cost)}</td></tr>`;
+      <td class="${cls(d.mix)}">${inrS(d.mix)}</td><td class="${cls(d.price)}">${inrS(d.price)}</td><td class="${cls(d.cost)}">${inrS(d.cost)}</td>${contribMode?`<td class="${cls(d.newdisc)}">${inrS(d.newdisc)}</td><td class="${cls(d.other)}">${inrS(d.other)}</td>`:""}</tr>`;
   }
   html+=`</tbody></table>`;
   const box=document.getElementById("pvmBreak"); box.innerHTML=html;
   box.querySelectorAll("th.sortable").forEach(t=>t.onclick=()=>{ const k=t.dataset.k; pvmSort.dir=(pvmSort.key===k)?-pvmSort.dir:1; pvmSort.key=k; renderPVMBreak(rows); });
+  document.getElementById("pvmBreakNote").innerHTML = contribMode
+    ? "<b>Contribution to total:</b> each row shows its share of the chart above, so every column adds up to the waterfall exactly. Use this to find which rows drove Volume or Mix. <b>New/Disc</b> = entering/leaving segments (per \u201centries &amp; exits at\u201d); <b>Other</b> = returns-only rows."
+    : "<b>Within segment:</b> each row decomposes <i>its own</i> change, so \u0394GM \u20b9 sums to the total but Volume/Mix/Price/Cost do not tie to the chart. At SKU level Mix is always \u20b90 (one product has no internal mix) \u2014 switch to \u201cContribution to total\u201d to see per-SKU Mix.";
   box.querySelectorAll("tbody tr").forEach(tr=>tr.onclick=()=>drill(tr.dataset.dim,tr.dataset.val));
-  window._pvmData=data.map(d=>d.status!=="ok"?{[dimLabel]:d.v,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Status:statusText(d.status,dimLabel)}:{[dimLabel]:d.v,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Volume:Math.round(d.vol),Mix:Math.round(d.mix),Price:Math.round(d.price),Cost:Math.round(d.cost),Unallocated:Math.round(d.resid),Status:"ok"});
+  window._pvmData=data.map(d=>d.status!=="ok"?{[dimLabel]:d.v,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Status:statusText(d.status,dimLabel)}:{[dimLabel]:d.v,NS_to:Math.round(d.NS2),GM_from:Math.round(d.GM1),GM_to:Math.round(d.GM2),dGM:Math.round(d.dGM),Volume:Math.round(d.vol),Mix:Math.round(d.mix),Price:Math.round(d.price),Cost:Math.round(d.cost),...(contribMode?{NewDisc:Math.round(d.newdisc),Other:Math.round(d.other)}:{Unallocated:Math.round(d.resid)}),Status:"ok"});
 }
 function renderBridge(rows){
   const B=computeBridge(rows), wf=document.getElementById("brWaterfall"), tb=document.getElementById("brTable");
@@ -766,6 +808,9 @@ function setup(){
   document.getElementById("pvmEntryDim").innerHTML=Object.keys(ENTRY_OPTS).map(d=>`<option>${d}</option>`).join("");
   document.getElementById("pvmEntryDim").value="Product";
   document.getElementById("pvmEntryDim").onchange=()=>render();
+  document.getElementById("pvmMode").innerHTML=["Within segment","Contribution to total"].map(d=>`<option>${d}</option>`).join("");
+  document.getElementById("pvmMode").value="Within segment";
+  document.getElementById("pvmMode").onchange=()=>renderPVMBreak(applyFilters());
   document.getElementById("pvmDim").onchange=()=>renderPVMBreak(applyFilters());
   document.getElementById("brDim").onchange=()=>renderBridgeBreak(applyFilters());
   document.getElementById("br5Dim").onchange=()=>renderBridge5Break(applyFilters());
